@@ -826,6 +826,20 @@ Read `AGENTS.md` → `COLLAB.md` → `specs/active/tasks.md` → start coding
     },
 }
 
+def _atomic_write(filepath, content):
+    """原子写入：先写临时文件，成功后再 rename。防止中途崩溃留下半成品。"""
+    import tempfile
+    dirname = os.path.dirname(filepath)
+    fd, tmp = tempfile.mkstemp(dir=dirname, prefix=".tmp-")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(content)
+        os.replace(tmp, filepath)
+    except Exception:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+        raise
+
 # ═══════════════════════════════════════════════════════════════
 # 模型注册表 — 当前主流模型，agent-agnostic
 # ═══════════════════════════════════════════════════════════════
@@ -907,17 +921,25 @@ def _sanitize_agent_name(name):
     return safe[:64]  # 限制长度
 
 def _check_git_repo(target_dir):
-    """检查目标目录是否为有效的 Git 仓库"""
+    """检查目标目录是否为有效的 Git 仓库（支持 worktree）"""
     import subprocess
-    git_dir = os.path.join(target_dir, ".git")
-    if not os.path.isdir(git_dir):
+    git_path = os.path.join(target_dir, ".git")
+    # Worktree 的 .git 是文件（内含 gitdir: 引用），普通仓库是目录
+    if not (os.path.isdir(git_path) or os.path.isfile(git_path)):
         return False, f"目录 {target_dir} 不是 Git 仓库。\n请先运行: cd {target_dir} && git init"
     try:
         result = subprocess.run(["git", "-C", target_dir, "rev-parse", "--is-inside-work-tree"],
                               capture_output=True, text=True, timeout=5)
         if result.returncode != 0:
             return False, "Git 工作树不可用。"
-        return True, "Git 仓库就绪。"
+        # 额外检查：获取 remote 和当前分支
+        remote = subprocess.run(["git", "-C", target_dir, "remote"], capture_output=True, text=True, timeout=5)
+        branch = subprocess.run(["git", "-C", target_dir, "branch", "--show-current"], capture_output=True, text=True, timeout=5)
+        if remote.stdout.strip():
+            return True, f"Git 仓库就绪 (remote: {remote.stdout.strip().split()[0]}, branch: {branch.stdout.strip()})"
+        return True, "Git 仓库就绪（无 remote，仅本地）。"
+    except FileNotFoundError:
+        return False, "未找到 git 命令。请安装 Git。"
     except Exception as e:
         return False, f"Git 检查失败: {e}"
 
@@ -2252,8 +2274,7 @@ class BridgeApp:
                 os.makedirs(specs_dir, exist_ok=True)
                 # 写入文件
                 for name, content in all_files.items():
-                    with open(os.path.join(bridge_dir, name), "w", encoding="utf-8") as f:
-                        f.write(content)
+                    _atomic_write(_safe_path(name), content)
                 # 创建示例任务文件
                 with open(os.path.join(tasks_dir, "T001-example.md"), "w", encoding="utf-8") as f:
                     f.write(f"# T001: 示例任务\n\n- **状态**：📌待认领\n- **OWNER**：无\n"
@@ -2263,16 +2284,13 @@ class BridgeApp:
                 if mode == "loop-engineering":
                     all_files["loop-budget.md"] = generate_loop_budget_md(self.lang)
                     all_files["verify-template.md"] = generate_verify_template(self.lang)
-                    with open(_safe_path("loop-budget.md"), "w", encoding="utf-8") as f:
-                        f.write(all_files["loop-budget.md"])
-                    with open(_safe_path("verify-template.md"), "w", encoding="utf-8") as f:
-                        f.write(all_files["verify-template.md"])
+                    _atomic_write(_safe_path("loop-budget.md"), all_files["loop-budget.md"])
+                    _atomic_write(_safe_path("verify-template.md"), all_files["verify-template.md"])
 
                 # ── Parallel-Claim 额外文件 ──
                 if mode == "parallel-claim":
                     all_files["spec-claim-guide.md"] = generate_spec_claim_template(self.lang)
-                    with open(_safe_path("spec-claim-guide.md"), "w", encoding="utf-8") as f:
-                        f.write(all_files["spec-claim-guide.md"])
+                    _atomic_write(_safe_path("spec-claim-guide.md"), all_files["spec-claim-guide.md"])
                     # 创建示例 spec 文件
                     # 创建示例 spec 文件
                     with open(_safe_path(os.path.join("specs", "spec-example.md")), "w", encoding="utf-8") as f:
@@ -2335,8 +2353,7 @@ class BridgeApp:
 所有协作文件在 `.bridge/` 目录中。
 生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M')}
 """
-            with open(bridge_entry, "w", encoding="utf-8") as f:
-                f.write(entry_content)
+            _atomic_write(bridge_entry, entry_content)
 
             report = f"已在 {target} 中生成以下文件：\n\n  📄 BRIDGE.md (入口指针 — Agent 应从此文件开始)\n"
             report += "\n".join(f"  ✅ {p}" for p in sorted(all_files.keys()))
