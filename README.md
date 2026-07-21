@@ -1,115 +1,39 @@
-# Bridge — GPT + Reasonix 双 Agent 协作框架
+# Bridge — AI Agent 协作桥接器
 
-> GPT 做大脑，Reasonix 做双手。一套带质量门禁的开发流水线。
+一个 GUI 工具，在目标项目文件夹中生成 AI Agent 桥接流程的 `.md` 文件，
+让两个 AI Agent（如 GPT + Reasonix）通过文件系统高效协作。
 
----
+## 运行
 
-## 🏗️ 协作架构
-
-```
-                          ┌─────────────┐
-                          │   你（人类）  │
-                          └──────┬──────┘
-                                 │
-              ┌──────────────────┼──────────────────┐
-              ▼                                     ▼
-     ┌─────────────────┐                   ┌─────────────────┐
-     │  GPT（架构师）    │                   │ Reasonix（工程师）│
-     │                  │    specs/active/  │                  │
-     │ ① 需求澄清       │◄─────────────────▶│ ④ 编码实现       │
-     │ ② 架构设计       │    COLLAB.md      │ ⑤ 自测验证       │
-     │ ③ 任务分解       │                   │ ⑦ 整改修复       │
-     │ ⑥ 交付审查       │                   │ ⑧ 升级求助       │
-     │ ⑧ 亲自修复       │                   │                  │
-     │ ⑨ 最终验收       │                   │                  │
-     └─────────────────┘                   └─────────────────┘
-              │                                     │
-              └──────────────────┬──────────────────┘
-                                 │
-                          共享 Git 仓库
+```bash
+python bridge.py
 ```
 
-## 🔄 完整流水线
+零依赖，仅需 Python 3.8+ 标准库。
+
+## 功能
+
+- **5 种协作模式**：Architect-Engineer / Peer-Review / Spec-Driven / Quick-Start / 自定义
+- **4 标签页 GUI**：项目设置 → Agent 配置 → LLM 辅助 → 流水线编辑
+- **一键生成**：在目标项目文件夹生成 AGENTS.md、COLLAB.md、specs/ 等完整协作框架
+- **可选 LLM 集成**：接入 OpenAI 兼容 API，AI 分析需求并自动填充配置
+- **流水线编辑器**：自定义模式下增删改查 + 排序流水线阶段
+
+## 协作模式一览
+
+| 模式 | 说明 | 工序数 |
+|------|------|--------|
+| Architect-Engineer | GPT 架构师 + Reasonix 工程师，含审查门和升级修复 | 9 |
+| Peer-Review | 两个平等 Agent 并行开发 + 交叉审查 | 5 |
+| Spec-Driven | 规范先行，严格门禁，逐任务审查 | 8 |
+| Quick-Start | 最小化设置，快速开始 | 3 |
+| Custom | 用户完全自定义流水线 | 自定义 |
+
+## 项目结构
 
 ```
-需求澄清 ──→ 架构设计 ──→ 任务分解 ──→ 编码实现 ──→ 自测验证
-  (GPT)       (GPT)        (GPT)      (Reasonix)   (Reasonix)
-                                                 │
-                    ┌────────────────────────────┘
-                    ▼
-              交付审查 (GPT)
-                    │
-            ┌───────┴───────┐
-            ▼               ▼
-         通过 ✅         不通过 ❌
-            │               │
-            ▼               ▼
-        最终验收         整改指令 (GPT)
-         (GPT)              │
-            │               ▼
-            ▼          整改修复 (Reasonix)
-          归档              │
-                    ┌───────┴───────┐
-                    ▼               ▼
-                通过 ✅         仍失败 ❌ (第2轮后)
-                    │               │
-                    ▼               ▼
-               重新提交审查     🚨 升级：GPT亲自修复
-                                   │
-                                   ▼
-                              最终验收 → 归档
+bridge/
+├── bridge.py          # 主程序（单文件，零依赖）
+├── .gitignore
+└── README.md
 ```
-
-## 📂 关键文件
-
-| 文件 | 作用 | 谁来读写 |
-|------|------|---------|
-| `AGENTS.md` | 项目身份证 + 流水线定义 | 两个 agent 都读 |
-| `COLLAB.md` | **唯一真相源**：当前状态、任务追踪、升级记录 | 两个 agent 都读写 |
-| `specs/active/tasks.md` | 任务分解 + 状态机 | GPT 创建，Reasonix 更新状态 |
-| `specs/active/overview.md` | 项目总览 | GPT 写，Reasonix 读 |
-| `specs/active/architecture.md` | 架构设计 | GPT 写，Reasonix 读 |
-| `specs/active/review/` | GPT 审查报告 | GPT 写 |
-| `specs/active/fix-orders/` | GPT 整改指令 | GPT 写，Reasonix 执行 |
-| `specs/active/escalation.md` | 升级记录 + GPT 修复日志 | 两人都写 |
-| `specs/active/acceptance.md` | 最终验收清单 | GPT 签署 |
-| `specs/GPT-QUICKREF.md` | GPT 操作手册 | GPT 启动时读 |
-| `specs/REASONIX-QUICKREF.md` | Reasonix 操作手册 | Reasonix 启动时读 |
-
-## 🚀 怎么开始
-
-### 第一步：GPT 规划
-
-把以下内容喂给 ChatGPT/Codex：
-1. `AGENTS.md` 的内容
-2. `specs/GPT-QUICKREF.md` 的内容
-3. 你的需求
-
-然后说：
-> 请按流水线执行模式一（规划模式），创建 specs/active/ 下的规范文档。
-
-### 第二步：Reasonix 编码
-
-切到 Reasonix（本项目），说：
-> 读 AGENTS.md → COLLAB.md → specs/active/tasks.md，开始编码。
-
-### 第三步：GPT 审查
-
-代码提交后切回 GPT，说：
-> COLLAB.md 显示有待审查任务，请执行模式二（审查模式）。
-
-### 第四步：循环
-
-按流水线图走，直到所有任务通过验收。
-
----
-
-## 🔑 核心设计原则
-
-| 原则 | 说明 |
-|------|------|
-| **GPT 只在关键节点介入** | 规划 → 审查 → 验收。日常编码不消耗 GPT token |
-| **失败不跳级** | 审查不通过必须修复，不允许绕过 |
-| **最多 2 轮整改** | 第 3 次自动升级，GPT 亲自下场 |
-| **无证据不签字** | 验收必须有可验证的测试结果/日志 |
-| **COLLAB.md 是唯一真相源** | 不依赖记忆，文件即状态 |

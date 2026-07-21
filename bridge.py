@@ -1,0 +1,994 @@
+#!/usr/bin/env python3
+"""
+Bridge — AI Agent 协作桥接器
+
+一个 GUI 工具，用于在目标项目文件夹中生成 AI Agent 桥接流程的 .md 文件。
+两个 AI Agent 通过这些文件了解各自的角色、流水线和当前任务状态，
+从而实现高效协作。
+
+支持 5 种协作模式：
+  1. Architect-Engineer  — GPT 架构师 + Reasonix 工程师（9 道工序）
+  2. Peer-Review         — 两个平等 Agent 互相审查
+  3. Spec-Driven         — 规范先行，严格门禁
+  4. Quick-Start         — 最小化设置，立刻开始
+  5. Custom              — 用户自定义流水线
+
+可选：接入 OpenAI 兼容 API 辅助理解需求并自动填充内容。
+
+运行方式：
+  python bridge.py
+"""
+
+import os
+import sys
+import json
+import tkinter as tk
+from tkinter import ttk, filedialog, messagebox, scrolledtext
+from pathlib import Path
+from datetime import datetime
+import threading
+import urllib.request
+import urllib.error
+
+# ═══════════════════════════════════════════════════════════════
+# 模板定义
+# ═══════════════════════════════════════════════════════════════
+
+TEMPLATES = {
+    "architect-engineer": {
+        "name": "Architect-Engineer",
+        "description": "GPT 做架构师（规划/审查/验收），Reasonix 做工程师（编码/测试/修复）。9 道工序流水线，含交付审查门、整改闭环、GPT 升级修复机制。",
+        "icon": "🏗️",
+        "pipeline": [
+            {"id": "discovery",    "name": "需求澄清",   "agent": "Agent A", "desc": "分析需求，明确范围和用户故事"},
+            {"id": "architecture", "name": "架构设计",   "agent": "Agent A", "desc": "技术选型、模块划分、API 设计"},
+            {"id": "task_breakdown","name":"任务分解",   "agent": "Agent A", "desc": "将需求拆解为可独立实现的任务"},
+            {"id": "implement",    "name": "编码实现",   "agent": "Agent B", "desc": "读 spec，写代码，跑测试（TDD）"},
+            {"id": "self_test",    "name": "自测验证",   "agent": "Agent B", "desc": "运行全部测试，确保无回归"},
+            {"id": "review",       "name": "交付审查",   "agent": "Agent A", "desc": "5 维度审查：安全/功能/测试/架构/质量"},
+            {"id": "fix",          "name": "整改修复",   "agent": "Agent B", "desc": "修复审查指出的问题（最多 2 轮）"},
+            {"id": "escalation",   "name": "升级修复",   "agent": "Agent A", "desc": "2 轮修复失败后 Agent A 亲自下场"},
+            {"id": "acceptance",   "name": "最终验收",   "agent": "Agent A", "desc": "6 维度验收清单，无证据不签字"},
+        ],
+        "agent_a": {"name": "GPT", "role": "架构师 / 审核员", "model": "GPT-4 / Claude"},
+        "agent_b": {"name": "Reasonix", "role": "工程师 / 执行者", "model": "DeepSeek / 本地模型"},
+    },
+
+    "peer-review": {
+        "name": "Peer-Review",
+        "description": "两个平等的 AI Agent 互相协作和审查。适合两个能力相近的模型（如 GPT + Claude），各自实现不同模块并交叉审查。",
+        "icon": "🤝",
+        "pipeline": [
+            {"id": "plan_together", "name": "联合规划",   "agent": "Both",    "desc": "两个 Agent 共同制定计划和分工"},
+            {"id": "parallel_impl", "name": "并行实现",   "agent": "Both",    "desc": "各自认领模块，并行编码"},
+            {"id": "cross_review",  "name": "交叉审查",   "agent": "Both",    "desc": "交换审查对方的代码"},
+            {"id": "merge_test",    "name": "合并测试",   "agent": "Both",    "desc": "合并代码，运行集成测试"},
+            {"id": "joint_accept",  "name": "联合验收",   "agent": "Both",    "desc": "共同确认交付质量"},
+        ],
+        "agent_a": {"name": "GPT", "role": "模块 A 负责人", "model": "GPT-4"},
+        "agent_b": {"name": "Claude", "role": "模块 B 负责人", "model": "Claude"},
+    },
+
+    "spec-driven": {
+        "name": "Spec-Driven",
+        "description": "规范先行，严格门禁。参考 cc-sdd 和 AppGenesisForge 的设计理念。先写完整规范，再按任务逐个实现和审查。",
+        "icon": "📋",
+        "pipeline": [
+            {"id": "discovery",    "name": "需求发现",   "agent": "Agent A", "desc": "路由需求，确定是否需创建 spec"},
+            {"id": "spec_init",    "name": "规范初始化", "agent": "Agent A", "desc": "创建规范文档骨架"},
+            {"id": "requirements", "name": "需求编写",   "agent": "Agent A", "desc": "EARS 格式需求 + 验收标准"},
+            {"id": "design",       "name": "架构设计",   "agent": "Agent A", "desc": "架构图、文件结构规划、边界定义"},
+            {"id": "tasks",        "name": "任务分解",   "agent": "Agent A", "desc": "任务列表含依赖和边界标注"},
+            {"id": "impl_review",  "name": "实现+审查循环","agent":"Both",   "desc": "逐任务：实现 → 独立审查 → 修复 → 通过"},
+            {"id": "integration",  "name": "集成验证",   "agent": "Agent A", "desc": "跨任务集成检查"},
+            {"id": "signoff",      "name": "签字交付",   "agent": "Agent A", "desc": "最终验收签字"},
+        ],
+        "agent_a": {"name": "GPT", "role": "规范编写者 / 审查员", "model": "GPT-4"},
+        "agent_b": {"name": "Reasonix", "role": "任务实现者", "model": "DeepSeek"},
+    },
+
+    "quick-start": {
+        "name": "Quick-Start",
+        "description": "最小化设置。只有一个 AGENTS.md + COLLAB.md，不定义严格流水线，适合快速原型和小项目。",
+        "icon": "⚡",
+        "pipeline": [
+            {"id": "plan",  "name": "规划", "agent": "Agent A", "desc": "写需求和任务"},
+            {"id": "build", "name": "构建", "agent": "Agent B", "desc": "编码实现"},
+            {"id": "check", "name": "检查", "agent": "Agent A", "desc": "快速审查"},
+        ],
+        "agent_a": {"name": "GPT", "role": "规划者", "model": "GPT-4"},
+        "agent_b": {"name": "Reasonix", "role": "执行者", "model": "DeepSeek"},
+    },
+}
+
+
+# ═══════════════════════════════════════════════════════════════
+# 文件生成引擎
+# ═══════════════════════════════════════════════════════════════
+
+def generate_agents_md(mode, agent_a, agent_b, project_name="未命名项目"):
+    """生成 AGENTS.md 内容"""
+    tmpl = TEMPLATES[mode]
+    pipeline_md = ""
+    for i, stage in enumerate(tmpl["pipeline"]):
+        pipeline_md += f"│  {i+1}. {stage['name']} ({stage['agent']})\n"
+
+    return f"""# AGENTS.md — 项目身份证 & 协作流水线定义
+
+> 本文件是项目的永久元信息，两个 agent 启动时第一件事就是读它。
+> 修改频率：低（技术栈/流水线变更时更新）。
+
+## 项目信息
+
+- **名称**：{project_name}
+- **创建时间**：{datetime.now().strftime('%Y-%m-%d %H:%M')}
+- **协作模式**：{tmpl['name']}
+
+## 技术栈
+
+<!-- 首次规划后填写 -->
+
+## 协作模式
+
+### Agent A — {agent_a.get('name', 'Agent A')}
+- **角色**：{agent_a.get('role', '未指定')}
+- **模型**：{agent_a.get('model', '未指定')}
+- **职责**：{"、".join([s['name'] for s in tmpl['pipeline'] if s['agent'] in ('Agent A', 'Both')])}
+
+### Agent B — {agent_b.get('name', 'Agent B')}
+- **角色**：{agent_b.get('role', '未指定')}
+- **模型**：{agent_b.get('model', '未指定')}
+- **职责**：{"、".join([s['name'] for s in tmpl['pipeline'] if s['agent'] in ('Agent B', 'Both')])}
+
+## 开发流水线（{len(tmpl['pipeline'])} 道工序）
+
+```
+{pipeline_md.strip()}
+```
+
+## 关键规则
+
+1. **COLLAB.md 是唯一真相源**：所有状态变更必须写入，不靠记忆
+2. **失败不跳级**：任何阶段不通过必须回到实现层重做
+3. **先读后写**：每个 agent 启动时第一件事：读 AGENTS.md → COLLAB.md → specs/
+4. **无证据不签字**：验收必须基于可验证证据
+"""
+
+
+def generate_collab_md(mode, agent_a, agent_b, pipeline_custom=None):
+    """生成 COLLAB.md 内容"""
+    tmpl = TEMPLATES[mode]
+    pipeline = pipeline_custom if pipeline_custom else tmpl["pipeline"]
+    agent_a_name = agent_a.get('name', 'Agent A')
+    agent_b_name = agent_b.get('name', 'Agent B')
+
+    task_table = "| 任务ID | 任务名称 | 状态 | 负责人 | 最新 commit | 迭代轮次 |\n"
+    task_table += "|--------|---------|------|--------|------------|---------|\n"
+    task_table += "| - | 等待 {a} 初始化 | - | - | - | - |\n".format(a=agent_a_name)
+
+    return f"""# COLLAB.md — Agent 实时协作状态
+
+> ⚠️ **唯一真相源**：所有 agent 启动时第一读取、结束前最后写入。
+> 保持精简（3分钟可读完），过期信息删除，不要堆积历史。
+
+---
+
+## 📍 当前流水线阶段
+
+<!-- 阶段流转：{' → '.join([s['name'] for s in pipeline])} -->
+⏳ **{pipeline[0]['name']}** — 等待 {agent_a_name} 启动
+
+---
+
+## 🗺️ 任务状态总览
+
+{task_table}
+
+---
+
+## 🔍 当前任务详情
+
+_等待 {agent_a_name} 初始化_
+
+---
+
+## 📋 活跃决策
+
+_暂无_
+
+---
+
+## 🐛 陷阱 & 已知问题
+
+_暂无_
+
+---
+
+## 🚨 升级记录
+
+_暂无升级_
+
+---
+
+## 📝 审查记录
+
+_暂无审查_
+
+---
+
+## 🤝 Handoff 接力区
+
+> **→ {agent_a_name}**：等待首次项目规划。请阅读 AGENTS.md 了解流水线，然后在 specs/active/ 下创建规范文档。
+"""
+
+
+def generate_tasks_md(mode):
+    """生成 tasks.md 模板"""
+    tmpl = TEMPLATES[mode]
+    return f"""# 任务列表 & 状态追踪
+
+> 状态机：TODO → IN_PROGRESS → SELF_TESTED → UNDER_REVIEW → APPROVED / REVISION_REQUIRED → FIXING → ESCALATED → GPT_FIXING → ACCEPTED → DONE
+
+---
+
+## 元信息
+
+- **总任务数**：0
+- **已完成**：0
+- **进行中**：0
+
+---
+
+## 任务列表
+
+<!--
+每个任务按以下模板填写：
+
+### Task N: [任务标题]
+- **状态**：TODO
+- **负责人**：Agent A / Agent B
+- **依赖**：Task X（无依赖填 无）
+- **涉及文件**：src/xxx.ts
+- **迭代轮次**：0
+
+#### 目标
+[一句话说清楚要做什么]
+
+#### 验收标准
+- [ ] 功能正常工作
+- [ ] 通过单元测试
+- [ ] 无 linter 错误
+
+#### 进度日志
+| 日期 | 状态变更 | 操作人 | 备注 |
+|------|---------|--------|------|
+-->
+
+_等待分解任务_
+
+---
+
+## 实现笔记（跨任务知识传递）
+
+_暂无_
+"""
+
+
+def generate_review_template():
+    """生成审查报告模板"""
+    return """# 审查报告：Task N — [任务标题]
+
+- **审查日期**：YYYY-MM-DD
+- **审查人**：[Agent Name]
+- **审查轮次**：第 1 轮
+- **被审查 commit**：abc1234
+
+## 审查结论
+
+✅ **通过** / ❌ **不通过，需整改**
+
+## 审查维度
+
+### 1. 功能完整性
+- [ ] 验收标准逐条满足
+- 问题：...
+
+### 2. 代码质量
+- [ ] 命名清晰、符合规范
+- 问题：...
+
+### 3. 测试覆盖
+- [ ] 测试通过，覆盖率达标
+- 问题：...
+
+### 4. 安全性
+- [ ] 无注入风险、无密钥泄露
+- 问题：...
+
+### 5. 架构合规
+- [ ] 符合设计，未破坏模块边界
+- 问题：...
+
+## 整改清单（如果不通过）
+
+| 编号 | 问题描述 | 严重程度 | 涉及文件 | 修复建议 |
+|------|---------|---------|---------|---------|
+| F-01 | ... | 🔴阻塞 / 🟡建议 | src/x.ts | ... |
+"""
+
+
+def generate_fix_template():
+    """生成整改指令模板"""
+    return """# 整改指令：Task N — [任务标题] — 第 X 轮
+
+- **下达日期**：YYYY-MM-DD
+- **基于审查**：review/review-T00N.md
+- **执行人**：[Agent Name]
+
+## 整改项
+
+### F-01：[问题简述] 🔴阻塞
+- **审查指出**：...
+- **期望结果**：...
+- **涉及文件**：src/xxx.ts
+
+## 整改后自检
+
+- [ ] 所有 🔴 阻塞项已修复
+- [ ] 所有测试仍然通过
+- [ ] 已 git commit
+"""
+
+
+def generate_acceptance_md():
+    """生成验收报告模板"""
+    return """# 最终验收报告
+
+> **签字人**：Agent A
+> **原则**：无证据不签字
+
+## 验收检查清单
+
+### 1. 功能完整性
+- [ ] 所有任务标记为 APPROVED 或 ACCEPTED
+- 证据：...
+
+### 2. 测试通过
+- [ ] 全部测试通过
+- 证据：...
+
+### 3. 代码质量
+- [ ] 无 linter 错误、无 TODO 残留
+- 证据：...
+
+### 4. 安全性
+- [ ] 无密钥泄露、无注入风险
+- 证据：...
+
+### 5. 文档
+- [ ] README 已更新
+- 证据：...
+
+### 6. 部署就绪
+- [ ] 构建脚本正常运行
+- 证据：...
+
+---
+
+## 验收结论
+
+### ✅ 验收通过 / ⚠️ 有条件通过 / ❌ 不通过
+
+- **验收人**：[Agent Name]
+- **日期**：YYYY-MM-DD
+"""
+
+
+def generate_readme_md(mode, agent_a, agent_b, project_name):
+    """生成 README.md"""
+    tmpl = TEMPLATES[mode]
+    agent_a_name = agent_a.get('name', 'Agent A')
+    agent_b_name = agent_b.get('name', 'Agent B')
+
+    pipeline_flow = ""
+    for i, stage in enumerate(tmpl["pipeline"]):
+        arrow = "" if i == len(tmpl["pipeline"]) - 1 else " ──→"
+        pipeline_flow += f"  {stage['name']} ({stage['agent']}){arrow}\n"
+
+    return f"""# {project_name} — {tmpl['name']} 协作模式
+
+> {tmpl['description']}
+
+## 协作架构
+
+```
+┌─────────────────┐         ┌─────────────────┐
+│  {agent_a_name:<15} │  specs/  │  {agent_b_name:<15} │
+│  {agent_a.get('role', ''):<15} │◄───────▶│  {agent_b.get('role', ''):<15} │
+│                 │ COLLAB  │                 │
+│  {"、".join([s['name'] for s in tmpl['pipeline'] if s['agent'] in ('Agent A', 'Both')][:3])}│         │  {"、".join([s['name'] for s in tmpl['pipeline'] if s['agent'] in ('Agent B', 'Both')][:3])}│
+└─────────────────┘         └─────────────────┘
+```
+
+## 流水线
+
+```
+{pipeline_flow.strip()}
+```
+
+## 关键文件
+
+| 文件 | 作用 |
+|------|------|
+| `AGENTS.md` | 项目身份证 + 流水线定义 |
+| `COLLAB.md` | 唯一真相源：当前状态 |
+| `specs/active/tasks.md` | 任务分解 + 状态追踪 |
+| `specs/active/review/` | 审查报告 |
+| `specs/active/fix-orders/` | 整改指令 |
+
+## 快速开始
+
+### Agent A 启动
+读 `AGENTS.md` → `COLLAB.md` → 执行你的流水线阶段
+
+### Agent B 启动
+读 `AGENTS.md` → `COLLAB.md` → `specs/active/tasks.md` → 开始编码
+
+---
+
+*由 Bridge 生成于 {datetime.now().strftime('%Y-%m-%d %H:%M')}*
+"""
+
+
+# ═══════════════════════════════════════════════════════════════
+# LLM 辅助模块
+# ═══════════════════════════════════════════════════════════════
+
+def call_llm(api_key, api_base, model, system_prompt, user_prompt, timeout=30):
+    """调用 OpenAI 兼容 API"""
+    url = f"{api_base.rstrip('/')}/chat/completions"
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}"
+    }
+    body = json.dumps({
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ],
+        "temperature": 0.7,
+        "max_tokens": 2000
+    }).encode("utf-8")
+
+    req = urllib.request.Request(url, data=body, headers=headers, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            return data["choices"][0]["message"]["content"]
+    except urllib.error.HTTPError as e:
+        err_body = e.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"HTTP {e.code}: {err_body[:500]}")
+    except Exception as e:
+        raise RuntimeError(str(e))
+
+
+def llm_enhance_description(api_key, api_base, model, user_input, mode_name):
+    """用 LLM 理解用户输入并增强项目描述"""
+    system_prompt = f"""你是一个 AI Agent 协作框架的配置助手。用户选择了「{mode_name}」协作模式。
+请根据用户的描述，简洁地提取以下信息（JSON 格式）：
+{{
+  "project_name": "项目名称",
+  "agent_a_role": "Agent A 的具体角色描述（20字以内）",
+  "agent_b_role": "Agent B 的具体角色描述（20字以内）",
+  "tech_stack": "推荐技术栈",
+  "key_features": ["核心功能1", "核心功能2"]
+}}
+只输出 JSON，不要其他内容。"""
+
+    result = call_llm(api_key, api_base, model, system_prompt, user_input)
+    # 尝试提取 JSON
+    result = result.strip()
+    if result.startswith("```"):
+        result = result.split("\n", 1)[1]
+        if result.endswith("```"):
+            result = result[:-3]
+    return json.loads(result)
+
+
+# ═══════════════════════════════════════════════════════════════
+# GUI 界面
+# ═══════════════════════════════════════════════════════════════
+
+class BridgeApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Bridge — AI Agent 协作桥接器")
+        self.root.geometry("1000x720")
+        self.root.minsize(900, 600)
+
+        # 样式
+        style = ttk.Style()
+        style.theme_use("clam")
+
+        # 数据
+        self.target_dir = tk.StringVar(value="")
+        self.mode = tk.StringVar(value="architect-engineer")
+        self.project_name = tk.StringVar(value="")
+        self.agent_a_name = tk.StringVar(value="GPT")
+        self.agent_a_role = tk.StringVar(value="架构师 / 审核员")
+        self.agent_a_model = tk.StringVar(value="GPT-4")
+        self.agent_b_name = tk.StringVar(value="Reasonix")
+        self.agent_b_role = tk.StringVar(value="工程师 / 执行者")
+        self.agent_b_model = tk.StringVar(value="DeepSeek")
+
+        # LLM 设置
+        self.llm_enabled = tk.BooleanVar(value=False)
+        self.llm_api_key = tk.StringVar(value="")
+        self.llm_api_base = tk.StringVar(value="https://api.openai.com/v1")
+        self.llm_model = tk.StringVar(value="gpt-4o-mini")
+        self.llm_user_input = tk.StringVar(value="")
+
+        # 自定义流水线
+        self.custom_pipeline = []
+
+        self._build_ui()
+
+    def _build_ui(self):
+        # 主容器
+        main_frame = ttk.Frame(self.root, padding=10)
+        main_frame.pack(fill=tk.BOTH, expand=True)
+
+        # 顶部标题
+        title_frame = ttk.Frame(main_frame)
+        title_frame.pack(fill=tk.X, pady=(0, 10))
+        ttk.Label(title_frame, text="🌉 Bridge — AI Agent 协作桥接器",
+                  font=("Microsoft YaHei", 16, "bold")).pack(side=tk.LEFT)
+        ttk.Label(title_frame, text="在项目文件夹中生成 AI 协作流程文件",
+                  font=("Microsoft YaHei", 9)).pack(side=tk.LEFT, padx=10)
+
+        # Notebook 分页
+        notebook = ttk.Notebook(main_frame)
+        notebook.pack(fill=tk.BOTH, expand=True)
+
+        # ─── Tab 1: 项目设置 ───
+        tab1 = ttk.Frame(notebook, padding=15)
+        notebook.add(tab1, text="  📁 项目设置  ")
+
+        # 项目文件夹
+        ttk.Label(tab1, text="目标项目文件夹", font=("", 10, "bold")).pack(anchor=tk.W, pady=(0, 5))
+        dir_frame = ttk.Frame(tab1)
+        dir_frame.pack(fill=tk.X, pady=(0, 15))
+        ttk.Entry(dir_frame, textvariable=self.target_dir, width=60).pack(side=tk.LEFT, fill=tk.X, expand=True)
+        ttk.Button(dir_frame, text="浏览...", command=self._browse_dir).pack(side=tk.LEFT, padx=5)
+
+        # 项目名称
+        ttk.Label(tab1, text="项目名称", font=("", 10, "bold")).pack(anchor=tk.W, pady=(0, 5))
+        ttk.Entry(tab1, textvariable=self.project_name, width=60).pack(fill=tk.X, pady=(0, 15))
+
+        # 协作模式选择
+        ttk.Label(tab1, text="协作模式", font=("", 10, "bold")).pack(anchor=tk.W, pady=(0, 10))
+
+        mode_frame = ttk.Frame(tab1)
+        mode_frame.pack(fill=tk.BOTH, expand=True)
+
+        self.mode_frames = {}
+        row = 0
+        for mode_key, tmpl in TEMPLATES.items():
+            fm = ttk.LabelFrame(mode_frame, text=f"{tmpl['icon']} {tmpl['name']}")
+            fm.grid(row=row, column=0, sticky="ew", pady=3, padx=(0, 10))
+            mode_frame.columnconfigure(0, weight=1)
+
+            desc_frame = ttk.Frame(fm, padding=8)
+            desc_frame.pack(fill=tk.X)
+
+            ttk.Radiobutton(
+                desc_frame, text=tmpl['description'][:80] + "...",
+                variable=self.mode, value=mode_key,
+                command=self._on_mode_change
+            ).pack(anchor=tk.W)
+
+            ttk.Label(desc_frame, text=f"工序：{' → '.join([s['name'] for s in tmpl['pipeline']])}",
+                      font=("", 8), foreground="gray").pack(anchor=tk.W, padx=20)
+
+            self.mode_frames[mode_key] = fm
+            row += 1
+
+        # ─── Tab 2: Agent 配置 ───
+        tab2 = ttk.Frame(notebook, padding=15)
+        notebook.add(tab2, text="  🤖 Agent 配置  ")
+
+        # Agent A
+        a_frame = ttk.LabelFrame(tab2, text="Agent A（架构师/规划者）", padding=10)
+        a_frame.pack(fill=tk.X, pady=(0, 15))
+        for i, (label, var) in enumerate([
+            ("名称", self.agent_a_name), ("角色描述", self.agent_a_role), ("模型", self.agent_a_model)
+        ]):
+            ttk.Label(a_frame, text=label, width=10).grid(row=i, column=0, sticky=tk.W, pady=3)
+            ttk.Entry(a_frame, textvariable=var, width=40).grid(row=i, column=1, sticky=tk.EW, padx=5)
+        a_frame.columnconfigure(1, weight=1)
+
+        # Agent B
+        b_frame = ttk.LabelFrame(tab2, text="Agent B（工程师/执行者）", padding=10)
+        b_frame.pack(fill=tk.X, pady=(0, 15))
+        for i, (label, var) in enumerate([
+            ("名称", self.agent_b_name), ("角色描述", self.agent_b_role), ("模型", self.agent_b_model)
+        ]):
+            ttk.Label(b_frame, text=label, width=10).grid(row=i, column=0, sticky=tk.W, pady=3)
+            ttk.Entry(b_frame, textvariable=var, width=40).grid(row=i, column=1, sticky=tk.EW, padx=5)
+        b_frame.columnconfigure(1, weight=1)
+
+        # ─── Tab 3: LLM 辅助 ───
+        tab3 = ttk.Frame(notebook, padding=15)
+        notebook.add(tab3, text="  🧠 LLM 辅助  ")
+
+        ttk.Checkbutton(tab3, text="启用 LLM API 辅助理解需求",
+                        variable=self.llm_enabled).pack(anchor=tk.W, pady=(0, 10))
+
+        llm_frame = ttk.LabelFrame(tab3, text="API 设置", padding=10)
+        llm_frame.pack(fill=tk.X, pady=(0, 15))
+
+        fields = [
+            ("API Key", self.llm_api_key, True),
+            ("API Base URL", self.llm_api_base, False),
+            ("模型", self.llm_model, False),
+        ]
+        for i, (label, var, is_secret) in enumerate(fields):
+            ttk.Label(llm_frame, text=label, width=12).grid(row=i, column=0, sticky=tk.W, pady=3)
+            entry = ttk.Entry(llm_frame, textvariable=var, width=50,
+                             show="*" if is_secret else "")
+            entry.grid(row=i, column=1, sticky=tk.EW, padx=5)
+            if is_secret:
+                self._llm_key_entry = entry
+
+        ttk.Label(tab3, text="描述你的项目需求（LLM 将辅助分析并自动填充配置）：",
+                  font=("", 9)).pack(anchor=tk.W, pady=(10, 5))
+        self.llm_input_text = scrolledtext.ScrolledText(tab3, height=4, width=60)
+        self.llm_input_text.pack(fill=tk.X, pady=(0, 10))
+        self.llm_input_text.insert("1.0", "")
+
+        llm_btn_frame = ttk.Frame(tab3)
+        llm_btn_frame.pack(fill=tk.X)
+        ttk.Button(llm_btn_frame, text="🤖 AI 分析需求",
+                   command=self._llm_analyze).pack(side=tk.LEFT, padx=(0, 10))
+        self.llm_status = ttk.Label(llm_btn_frame, text="", foreground="gray")
+        self.llm_status.pack(side=tk.LEFT)
+
+        # ─── Tab 4: 自定义流水线 ───
+        tab4 = ttk.Frame(notebook, padding=15)
+        notebook.add(tab4, text="  🔧 流水线编辑  ")
+
+        ttk.Label(tab4, text="仅「Custom」模式下生效。拖拽排序未实现，请用上下按钮调整。",
+                  font=("", 9), foreground="gray").pack(anchor=tk.W, pady=(0, 10))
+
+        pipeline_edit_frame = ttk.Frame(tab4)
+        pipeline_edit_frame.pack(fill=tk.BOTH, expand=True)
+
+        # 流水线列表
+        list_frame = ttk.Frame(pipeline_edit_frame)
+        list_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 10))
+
+        ttk.Label(list_frame, text="流水线阶段", font=("", 9, "bold")).pack(anchor=tk.W)
+        self.pipeline_listbox = tk.Listbox(list_frame, height=12, selectmode=tk.SINGLE)
+        self.pipeline_listbox.pack(fill=tk.BOTH, expand=True, pady=5)
+        scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=self.pipeline_listbox.yview)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.pipeline_listbox.config(yscrollcommand=scrollbar.set)
+
+        # 编辑区
+        edit_frame = ttk.Frame(pipeline_edit_frame)
+        edit_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
+
+        stage_fields = [
+            ("阶段名称", "stage_name"),
+            ("执行 Agent", "stage_agent"),
+            ("描述", "stage_desc"),
+        ]
+        self.stage_vars = {}
+        for i, (label, key) in enumerate(stage_fields):
+            ttk.Label(edit_frame, text=label, font=("", 9)).pack(anchor=tk.W, pady=(5, 0))
+            var = tk.StringVar()
+            self.stage_vars[key] = var
+            ttk.Entry(edit_frame, textvariable=var, width=30).pack(fill=tk.X)
+
+        btn_row = ttk.Frame(edit_frame)
+        btn_row.pack(fill=tk.X, pady=10)
+        ttk.Button(btn_row, text="➕ 添加", command=self._add_stage).pack(side=tk.LEFT, padx=2)
+        ttk.Button(btn_row, text="✏️ 更新", command=self._update_stage).pack(side=tk.LEFT, padx=2)
+        ttk.Button(btn_row, text="🗑 删除", command=self._delete_stage).pack(side=tk.LEFT, padx=2)
+        ttk.Button(btn_row, text="⬆", command=self._move_stage_up, width=3).pack(side=tk.LEFT, padx=2)
+        ttk.Button(btn_row, text="⬇", command=self._move_stage_down, width=3).pack(side=tk.LEFT, padx=2)
+
+        self.pipeline_listbox.bind("<<ListboxSelect>>", self._on_stage_select)
+
+        # ─── 底部操作栏 ───
+        bottom_frame = ttk.Frame(main_frame)
+        bottom_frame.pack(fill=tk.X, pady=(10, 0))
+
+        # 预览区
+        preview_frame = ttk.LabelFrame(main_frame, text="生成预览", padding=5)
+        preview_frame.pack(fill=tk.BOTH, expand=True, pady=(10, 0))
+
+        self.preview_text = scrolledtext.ScrolledText(preview_frame, height=6, width=80,
+                                                       font=("Consolas", 9))
+        self.preview_text.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Button(bottom_frame, text="👁 预览生成内容",
+                   command=self._preview).pack(side=tk.LEFT, padx=(0, 10))
+        ttk.Button(bottom_frame, text="🚀 生成到项目文件夹",
+                   command=self._generate).pack(side=tk.LEFT)
+        self.status_label = ttk.Label(bottom_frame, text="就绪", foreground="gray")
+        self.status_label.pack(side=tk.RIGHT)
+
+        # 初始化
+        self._on_mode_change()
+        self._init_custom_pipeline()
+
+    def _browse_dir(self):
+        d = filedialog.askdirectory(title="选择目标项目文件夹")
+        if d:
+            self.target_dir.set(d)
+            # 自动提取项目名
+            if not self.project_name.get():
+                self.project_name.set(os.path.basename(d))
+
+    def _on_mode_change(self, *args):
+        mode = self.mode.get()
+        if mode in TEMPLATES:
+            tmpl = TEMPLATES[mode]
+            self.agent_a_name.set(tmpl["agent_a"]["name"])
+            self.agent_a_role.set(tmpl["agent_a"]["role"])
+            self.agent_a_model.set(tmpl["agent_a"]["model"])
+            self.agent_b_name.set(tmpl["agent_b"]["name"])
+            self.agent_b_role.set(tmpl["agent_b"]["role"])
+            self.agent_b_model.set(tmpl["agent_b"]["model"])
+
+    def _init_custom_pipeline(self):
+        """初始化自定义流水线（使用 architect-engineer 作为默认）"""
+        self.custom_pipeline = [
+            {"id": f"s{i}", "name": s["name"], "agent": s["agent"], "desc": s["desc"]}
+            for i, s in enumerate(TEMPLATES["architect-engineer"]["pipeline"])
+        ]
+        self._refresh_pipeline_list()
+
+    def _refresh_pipeline_list(self):
+        self.pipeline_listbox.delete(0, tk.END)
+        for stage in self.custom_pipeline:
+            self.pipeline_listbox.insert(tk.END, f"{stage['name']}  [{stage['agent']}]")
+
+    def _on_stage_select(self, event):
+        sel = self.pipeline_listbox.curselection()
+        if sel:
+            idx = sel[0]
+            stage = self.custom_pipeline[idx]
+            self.stage_vars["stage_name"].set(stage["name"])
+            self.stage_vars["stage_agent"].set(stage["agent"])
+            self.stage_vars["stage_desc"].set(stage["desc"])
+
+    def _add_stage(self):
+        name = self.stage_vars["stage_name"].get().strip()
+        agent = self.stage_vars["stage_agent"].get().strip()
+        desc = self.stage_vars["stage_desc"].get().strip()
+        if not name:
+            messagebox.showwarning("提示", "请输入阶段名称")
+            return
+        self.custom_pipeline.append({
+            "id": f"s{len(self.custom_pipeline)}",
+            "name": name, "agent": agent or "Both", "desc": desc
+        })
+        self._refresh_pipeline_list()
+
+    def _update_stage(self):
+        sel = self.pipeline_listbox.curselection()
+        if not sel:
+            return
+        idx = sel[0]
+        self.custom_pipeline[idx]["name"] = self.stage_vars["stage_name"].get().strip()
+        self.custom_pipeline[idx]["agent"] = self.stage_vars["stage_agent"].get().strip()
+        self.custom_pipeline[idx]["desc"] = self.stage_vars["stage_desc"].get().strip()
+        self._refresh_pipeline_list()
+
+    def _delete_stage(self):
+        sel = self.pipeline_listbox.curselection()
+        if not sel:
+            return
+        idx = sel[0]
+        del self.custom_pipeline[idx]
+        self._refresh_pipeline_list()
+
+    def _move_stage_up(self):
+        sel = self.pipeline_listbox.curselection()
+        if not sel or sel[0] == 0:
+            return
+        idx = sel[0]
+        self.custom_pipeline[idx], self.custom_pipeline[idx-1] = \
+            self.custom_pipeline[idx-1], self.custom_pipeline[idx]
+        self._refresh_pipeline_list()
+        self.pipeline_listbox.selection_set(idx - 1)
+
+    def _move_stage_down(self):
+        sel = self.pipeline_listbox.curselection()
+        if not sel or sel[0] >= len(self.custom_pipeline) - 1:
+            return
+        idx = sel[0]
+        self.custom_pipeline[idx], self.custom_pipeline[idx+1] = \
+            self.custom_pipeline[idx+1], self.custom_pipeline[idx]
+        self._refresh_pipeline_list()
+        self.pipeline_listbox.selection_set(idx + 1)
+
+    def _get_agent_configs(self):
+        return (
+            {"name": self.agent_a_name.get(), "role": self.agent_a_role.get(), "model": self.agent_a_model.get()},
+            {"name": self.agent_b_name.get(), "role": self.agent_b_role.get(), "model": self.agent_b_model.get()},
+        )
+
+    def _llm_analyze(self):
+        if not self.llm_enabled.get():
+            messagebox.showinfo("提示", "请先勾选「启用 LLM API」")
+            return
+        user_input = self.llm_input_text.get("1.0", tk.END).strip()
+        if not user_input:
+            messagebox.showinfo("提示", "请先输入项目需求描述")
+            return
+
+        self.llm_status.config(text="⏳ 分析中...", foreground="blue")
+        self.root.update()
+
+        def task():
+            try:
+                api_key = self.llm_api_key.get().strip()
+                api_base = self.llm_api_base.get().strip()
+                model = self.llm_model.get().strip()
+                mode_name = TEMPLATES[self.mode.get()]["name"]
+
+                result = llm_enhance_description(api_key, api_base, model, user_input, mode_name)
+
+                # 在主线程更新 UI
+                self.root.after(0, lambda: self._apply_llm_result(result))
+
+            except Exception as e:
+                self.root.after(0, lambda: self.llm_status.config(
+                    text=f"❌ {str(e)[:80]}", foreground="red"))
+
+        threading.Thread(target=task, daemon=True).start()
+
+    def _apply_llm_result(self, result):
+        try:
+            if result.get("project_name"):
+                self.project_name.set(result["project_name"])
+            if result.get("agent_a_role"):
+                self.agent_a_role.set(result["agent_a_role"])
+            if result.get("agent_b_role"):
+                self.agent_b_role.set(result["agent_b_role"])
+            self.llm_status.config(text="✅ 分析完成，配置已自动填充", foreground="green")
+        except Exception as e:
+            self.llm_status.config(text=f"⚠️ 结果解析异常: {e}", foreground="orange")
+
+    def _preview(self):
+        mode = self.mode.get()
+        agent_a, agent_b = self._get_agent_configs()
+        project_name = self.project_name.get() or "未命名项目"
+
+        if mode == "custom":
+            pipeline = self.custom_pipeline
+        else:
+            pipeline = None
+
+        preview = f"""══════════════════════════════════════
+  Bridge 生成预览
+  模式: {TEMPLATES.get(mode, {}).get('name', 'Custom')}
+  项目: {project_name}
+  Agent A: {agent_a['name']} ({agent_a['role']})
+  Agent B: {agent_b['name']} ({agent_b['role']})
+══════════════════════════════════════
+
+📄 AGENTS.md:
+{generate_agents_md(mode, agent_a, agent_b, project_name)[:600]}...
+
+📄 COLLAB.md:
+{generate_collab_md(mode, agent_a, agent_b, pipeline)[:600]}...
+
+📄 README.md:
+{generate_readme_md(mode, agent_a, agent_b, project_name)[:600]}...
+
+... 以及 specs/ 目录下的 tasks.md、review 模板、fix-orders 模板、acceptance.md 等
+"""
+        self.preview_text.delete("1.0", tk.END)
+        self.preview_text.insert("1.0", preview)
+        self.status_label.config(text="预览已更新", foreground="blue")
+
+    def _generate(self):
+        target = self.target_dir.get().strip()
+        if not target:
+            messagebox.showerror("错误", "请先选择目标项目文件夹")
+            return
+        if not os.path.isdir(target):
+            messagebox.showerror("错误", f"文件夹不存在: {target}")
+            return
+
+        mode = self.mode.get()
+        agent_a, agent_b = self._get_agent_configs()
+        project_name = self.project_name.get() or os.path.basename(target) or "未命名项目"
+
+        if mode == "custom":
+            pipeline = self.custom_pipeline
+        else:
+            pipeline = None
+
+        # 检查是否覆盖
+        existing = [f for f in ["AGENTS.md", "COLLAB.md", "README.md", "specs"]
+                    if os.path.exists(os.path.join(target, f))]
+        if existing:
+            if not messagebox.askyesno("确认覆盖",
+                                        f"以下文件/目录已存在，将被覆盖：\n" +
+                                        "\n".join(f"  • {f}" for f in existing) +
+                                        "\n\n是否继续？"):
+                return
+
+        try:
+            files = {
+                "AGENTS.md": generate_agents_md(mode, agent_a, agent_b, project_name),
+                "COLLAB.md": generate_collab_md(mode, agent_a, agent_b, pipeline),
+                "README.md": generate_readme_md(mode, agent_a, agent_b, project_name),
+            }
+
+            specs_active = os.path.join(target, "specs", "active")
+            specs_review = os.path.join(specs_active, "review")
+            specs_fix = os.path.join(specs_active, "fix-orders")
+            specs_archive = os.path.join(target, "specs", "archive")
+
+            spec_files = {
+                os.path.join(specs_active, "tasks.md"): generate_tasks_md(mode),
+                os.path.join(specs_active, "acceptance.md"): generate_acceptance_md(),
+                os.path.join(specs_active, "escalation.md"):
+                    "# 升级记录\n\n暂无升级记录。\n",
+                os.path.join(specs_review, "TEMPLATE.md"): generate_review_template(),
+                os.path.join(specs_fix, "TEMPLATE.md"): generate_fix_template(),
+            }
+
+            # 创建目录
+            for d in [specs_active, specs_review, specs_fix, specs_archive]:
+                os.makedirs(d, exist_ok=True)
+
+            # 写入文件
+            all_files = {**files, **spec_files}
+            for path, content in all_files.items():
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write(content)
+
+            # .gitignore
+            gitignore_path = os.path.join(target, ".gitignore")
+            if not os.path.exists(gitignore_path):
+                with open(gitignore_path, "w", encoding="utf-8") as f:
+                    f.write("# OS\n.DS_Store\nThumbs.db\n\n# IDE\n.vscode/\n.idea/\n\n"
+                           "# Dependencies\nnode_modules/\n__pycache__/\n*.pyc\n\n"
+                           "# Build\ndist/\nbuild/\ntarget/\n\n# Env\n.env\n.env.local\n")
+
+            # 生成报告
+            report = f"已在 {target} 中生成以下文件：\n\n"
+            report += "\n".join(f"  ✅ {os.path.relpath(p, target)}" for p in all_files)
+            if not os.path.exists(gitignore_path):
+                pass  # 已创建
+
+            self.preview_text.delete("1.0", tk.END)
+            self.preview_text.insert("1.0", report)
+            self.status_label.config(text=f"✅ 已生成 {len(all_files)} 个文件", foreground="green")
+            messagebox.showinfo("生成完成", report)
+
+        except Exception as e:
+            messagebox.showerror("生成失败", str(e))
+            self.status_label.config(text=f"❌ {str(e)[:60]}", foreground="red")
+
+
+# ═══════════════════════════════════════════════════════════════
+# 入口
+# ═══════════════════════════════════════════════════════════════
+
+def main():
+    root = tk.Tk()
+    app = BridgeApp(root)
+    root.mainloop()
+
+
+if __name__ == "__main__":
+    main()
