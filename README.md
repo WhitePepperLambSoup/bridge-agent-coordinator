@@ -1,50 +1,70 @@
-# 记账本App — Architect-Engineer 协作模式
+# Bridge — AI Agent Collaboration Hub
 
-> GPT 做架构师（规划/审查/验收），Reasonix 做工程师（编码/测试/修复）。9 道工序流水线，含交付审查门、整改闭环、GPT 升级修复机制。
+[中文](README.zh-CN.md) | English
 
-## 协作架构
+A GUI tool that generates AI agent bridge workflow `.md` files in your project folder,
+enabling two AI agents (e.g., GPT + Reasonix) to collaborate efficiently through the filesystem.
 
-```
-┌─────────────────┐         ┌─────────────────┐
-│  GPT             │  specs/  │  Reasonix        │
-│  架构师/审核员         │◄───────▶│  工程师/执行者         │
-│                 │ COLLAB  │                 │
-│  需求澄清、架构设计、任务分解│         │  编码实现、自测验证、整改修复│
-└─────────────────┘         └─────────────────┘
+## Run
+
+```bash
+python bridge.py
 ```
 
-## 流水线
+Zero dependencies — Python 3.8+ standard library only.
+
+## Features
+
+- **6 collaboration modes**: Architect-Engineer / Peer-Review / Spec-Driven / Quick-Start / Parallel-Team / Custom
+- **🌐 Bilingual**: Full Chinese + English UI, switch with one click. Generated `.md` files follow the selected language.
+- **4-tab GUI**: Project Setup → Agent Config → LLM Assist → Pipeline Editor
+- **One-click generation**: Produces AGENTS.md, COLLAB.md (or agent-specific status files for parallel mode), specs/, and more in your target folder
+- **Optional LLM integration**: OpenAI-compatible API to analyze requirements and auto-fill configuration
+- **Pipeline editor**: Add, remove, reorder, and edit pipeline stages in Custom mode
+
+## Collaboration Modes
+
+| Mode | Concurrency | Stages | Best For |
+|------|-------------|--------|----------|
+| Architect-Engineer | Serial | 9 | GPT plans, Reasonix codes |
+| Peer-Review | Serial | 5 | Two equal agents cross-review |
+| Spec-Driven | Serial | 8 | Spec-first with strict gates |
+| Quick-Start | Serial | 3 | Minimal setup, rapid prototyping |
+| Parallel-Team | **Parallel** | 6 | Two agents work simultaneously |
+| Custom | Configurable | Custom | Define your own pipeline |
+
+## Parallel Mode: How Two Agents Work Simultaneously
+
+The key challenge: two agents writing to the same file would overwrite each other.
+
+**Our solution** — split file ownership + git arbitration:
 
 ```
-需求澄清 (Agent A) ──→
-  架构设计 (Agent A) ──→
-  任务分解 (Agent A) ──→
-  编码实现 (Agent B) ──→
-  自测验证 (Agent B) ──→
-  交付审查 (Agent A) ──→
-  整改修复 (Agent B) ──→
-  升级修复 (Agent A) ──→
-  最终验收 (Agent A)
+project/
+├── agent-gpt.md        ← Only GPT writes
+├── agent-reasonix.md   ← Only Reasonix writes
+├── board.md            ← Shared, git-arbitrated
+├── tasks/              ← Per-task files, git-arbitrated
+└── GIT_WORKTREE.md     ← Optional physical isolation guide
 ```
 
-## 关键文件
+Three rules prevent conflicts:
+| Rule | Mechanism |
+|------|-----------|
+| 🔒 Mutex writes | Each agent has its own status file — physically impossible to conflict |
+| 📋 Git arbitration | Shared files use "pull before edit, commit immediately after" |
+| 🏝️ Worktree isolation | Optional: `git worktree` for complete physical separation |
 
-| 文件 | 作用 |
-|------|------|
-| `AGENTS.md` | 项目身份证 + 流水线定义 |
-| `COLLAB.md` | 唯一真相源：当前状态 |
-| `specs/active/tasks.md` | 任务分解 + 状态追踪 |
-| `specs/active/review/` | 审查报告 |
-| `specs/active/fix-orders/` | 整改指令 |
+## Project Structure
 
-## 快速开始
+```
+bridge/
+├── bridge.py          # Main program (single file, zero deps)
+├── README.md          # This file (English)
+├── README.zh-CN.md    # Chinese version
+└── .gitignore
+```
 
-### Agent A 启动
-读 `AGENTS.md` → `COLLAB.md` → 执行你的流水线阶段
+## License
 
-### Agent B 启动
-读 `AGENTS.md` → `COLLAB.md` → `specs/active/tasks.md` → 开始编码
-
----
-
-*由 Bridge 生成于 2026-07-21 15:50*
+MIT

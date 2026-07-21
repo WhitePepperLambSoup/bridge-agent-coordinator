@@ -31,6 +31,748 @@ import urllib.request
 import urllib.error
 
 # ═══════════════════════════════════════════════════════════════
+# 国际化 (i18n)
+# ═══════════════════════════════════════════════════════════════
+
+LANG = "zh"  # 默认语言，GUI 可切换
+
+def T(key, lang=None, **fmt):
+    """获取翻译文本。key 用点号分隔层级，如 'mode.architect.name'"""
+    if lang is None:
+        lang = LANG
+    parts = key.split(".")
+    d = _STR
+    for p in parts:
+        if isinstance(d, dict) and p in d:
+            d = d[p]
+        else:
+            return key  # fallback: 返回 key 本身
+    if isinstance(d, dict):
+        text = d.get(lang, d.get("zh", str(d)))
+    else:
+        text = str(d)
+    if fmt:
+        text = text.format(**fmt)
+    return text
+
+def set_lang(lang):
+    global LANG
+    LANG = lang
+
+# 完整翻译字典 — 新增文本只需在此添加
+_STR = {
+    "window_title": {"zh": "Bridge — AI Agent 协作桥接器", "en": "Bridge — AI Agent Collaboration Hub"},
+    "tab_project": {"zh": "  📁 项目设置  ", "en": "  📁 Project Setup  "},
+    "tab_agent": {"zh": "  🤖 Agent 配置  ", "en": "  🤖 Agent Config  "},
+    "tab_llm": {"zh": "  🧠 LLM 辅助  ", "en": "  🧠 LLM Assist  "},
+    "tab_pipeline": {"zh": "  🔧 流水线编辑  ", "en": "  🔧 Pipeline Editor  "},
+
+    "lbl_target_dir": {"zh": "目标项目文件夹", "en": "Target Project Folder"},
+    "lbl_browse": {"zh": "浏览...", "en": "Browse..."},
+    "lbl_project_name": {"zh": "项目名称", "en": "Project Name"},
+    "lbl_collab_mode": {"zh": "协作模式", "en": "Collaboration Mode"},
+    "lbl_agent_a": {"zh": "Agent A（架构师/规划者）", "en": "Agent A (Architect/Planner)"},
+    "lbl_agent_b": {"zh": "Agent B（工程师/执行者）", "en": "Agent B (Engineer/Executor)"},
+    "lbl_name": {"zh": "名称", "en": "Name"},
+    "lbl_role": {"zh": "角色描述", "en": "Role Description"},
+    "lbl_model": {"zh": "模型", "en": "Model"},
+    "lbl_llm_enable": {"zh": "启用 LLM API 辅助理解需求", "en": "Enable LLM API to assist requirement analysis"},
+    "lbl_api_key": {"zh": "API Key", "en": "API Key"},
+    "lbl_api_base": {"zh": "API Base URL", "en": "API Base URL"},
+    "lbl_llm_model": {"zh": "模型", "en": "Model"},
+    "lbl_llm_desc": {"zh": "描述你的项目需求（LLM 将辅助分析并自动填充配置）：",
+                     "en": "Describe your project requirements (LLM will analyze and auto-fill):"},
+    "lbl_llm_analyze": {"zh": "🤖 AI 分析需求", "en": "🤖 AI Analyze"},
+    "lbl_pipeline_hint": {"zh": "仅「Custom」模式下生效。拖拽排序未实现，请用上下按钮调整。",
+                          "en": "Only effective in Custom mode. Use up/down buttons to reorder."},
+    "lbl_pipeline_stages": {"zh": "流水线阶段", "en": "Pipeline Stages"},
+    "lbl_stage_name": {"zh": "阶段名称", "en": "Stage Name"},
+    "lbl_stage_agent": {"zh": "执行 Agent", "en": "Agent"},
+    "lbl_stage_desc": {"zh": "描述", "en": "Description"},
+
+    "btn_add": {"zh": "➕ 添加", "en": "➕ Add"},
+    "btn_update": {"zh": "✏️ 更新", "en": "✏️ Update"},
+    "btn_delete": {"zh": "🗑 删除", "en": "🗑 Delete"},
+    "btn_preview": {"zh": "👁 预览生成内容", "en": "👁 Preview"},
+    "btn_generate": {"zh": "🚀 生成到项目文件夹", "en": "🚀 Generate to Project Folder"},
+    "btn_lang_zh": {"zh": "中", "en": "中"},
+    "btn_lang_en": {"zh": "En", "en": "En"},
+
+    "status_ready": {"zh": "就绪", "en": "Ready"},
+    "status_generated": {"zh": "✅ 已生成 {n} 个文件", "en": "✅ Generated {n} files"},
+    "status_preview": {"zh": "预览已更新", "en": "Preview updated"},
+    "status_analyzing": {"zh": "⏳ 分析中...", "en": "⏳ Analyzing..."},
+    "status_analyze_ok": {"zh": "✅ 分析完成，配置已自动填充", "en": "✅ Analysis complete, config auto-filled"},
+    "status_analyze_err": {"zh": "⚠️ 结果解析异常: {e}", "en": "⚠️ Parse error: {e}"},
+
+    "msg_confirm_overwrite": {"zh": "以下文件已存在，将被覆盖：\n{files}\n\n是否继续？",
+                              "en": "These files already exist and will be overwritten:\n{files}\n\nContinue?"},
+    "msg_overwrite_title": {"zh": "确认覆盖", "en": "Confirm Overwrite"},
+    "msg_no_dir": {"zh": "请先选择目标项目文件夹", "en": "Please select a target project folder first"},
+    "msg_dir_not_exist": {"zh": "文件夹不存在: {d}", "en": "Folder not found: {d}"},
+    "msg_llm_disabled": {"zh": "请先勾选「启用 LLM API」", "en": "Please check 'Enable LLM API' first"},
+    "msg_llm_no_input": {"zh": "请先输入项目需求描述", "en": "Please enter project requirements first"},
+    "msg_no_stage_name": {"zh": "请输入阶段名称", "en": "Please enter stage name"},
+    "msg_generated": {"zh": "已在 {d} 中生成以下文件：\n\n{files}",
+                      "en": "Generated the following files in {d}:\n\n{files}"},
+    "msg_generate_title": {"zh": "生成完成", "en": "Generation Complete"},
+    "msg_error_title": {"zh": "生成失败", "en": "Generation Failed"},
+    "msg_error": {"zh": "错误", "en": "Error"},
+    "msg_info": {"zh": "提示", "en": "Info"},
+
+    "preview_header": {"zh": """══════════════════════════════════════
+  Bridge 生成预览
+  模式: {mode}
+  并发: {concurrency}
+  项目: {project}
+  Agent A: {a_name} ({a_role})
+  Agent B: {b_name} ({b_role})
+══════════════════════════════════════
+""", "en": """══════════════════════════════════════
+  Bridge Generation Preview
+  Mode: {mode}
+  Concurrency: {concurrency}
+  Project: {project}
+  Agent A: {a_name} ({a_role})
+  Agent B: {b_name} ({b_role})
+══════════════════════════════════════
+"""},
+    "concurrency_parallel": {"zh": "⚡ 并行（分离文件+git仲裁）", "en": "⚡ Parallel (split files + git arbitration)"},
+    "concurrency_serial": {"zh": "🔗 串行（接力棒模式）", "en": "🔗 Serial (relay baton mode)"},
+
+    "preview_parallel": {"zh": """
+📄 AGENTS.md: 项目元信息 + 6 道工序流水线
+📄 agent-{a}.md: {a} 独立状态（只有 {a} 写）
+📄 agent-{b}.md: {b} 独立状态（只有 {b} 写）
+📄 board.md: 共享任务看板（git 仲裁并发）
+📄 PARALLEL_GUIDE.md: 并行协作快速入门
+📄 GIT_WORKTREE.md: worktree 物理隔离指南
+📂 tasks/: 独立任务文件
+📂 specs/: 只读规范文档
+
+-- 关键设计 --
+🔒 互斥写: 各自的状态文件互不冲突
+📋 共享写: board.md 和 tasks/ 通过 git 控制并发
+🔄 节奏: 原子操作写完立即 commit→push，开始前先 pull
+""", "en": """
+📄 AGENTS.md: Project metadata + 6-stage pipeline
+📄 agent-{a}.md: {a}'s private state (only {a} writes)
+📄 agent-{b}.md: {b}'s private state (only {b} writes)
+📄 board.md: Shared task board (git-arbitrated)
+📄 PARALLEL_GUIDE.md: Parallel collaboration quick-start
+📄 GIT_WORKTREE.md: Worktree isolation guide
+📂 tasks/: Per-task definition files
+📂 specs/: Read-only spec documents
+
+-- Key Design --
+🔒 Mutex Writes: Each agent's status file never conflicts
+📋 Shared Writes: board.md and tasks/ concurrency via git
+🔄 Rhythm: Commit+push after each atomic change; pull before starting
+"""},
+    "preview_serial_tail": {"zh": "\n... 以及 specs/ 目录下的 tasks.md、review 模板、fix-orders 模板、acceptance.md 等\n",
+                            "en": "\n... plus tasks.md, review templates, fix-order templates, acceptance.md under specs/\n"},
+
+    # 模式元信息
+    "mode": {
+        "architect-engineer": {
+            "name": {"zh": "Architect-Engineer", "en": "Architect-Engineer"},
+            "desc": {"zh": "GPT 做架构师（规划/审查/验收），Reasonix 做工程师（编码/测试/修复）。9 道工序流水线，含交付审查门、整改闭环、GPT 升级修复机制。",
+                     "en": "GPT as architect (plan/review/accept), Reasonix as engineer (code/test/fix). 9-stage pipeline with review gate, fix loop, and GPT escalation mode."},
+        },
+        "peer-review": {
+            "name": {"zh": "Peer-Review", "en": "Peer-Review"},
+            "desc": {"zh": "两个平等的 AI Agent 互相协作和审查。各自实现不同模块并交叉审查。",
+                     "en": "Two equal AI agents collaborate and cross-review each other's work on different modules."},
+        },
+        "spec-driven": {
+            "name": {"zh": "Spec-Driven", "en": "Spec-Driven"},
+            "desc": {"zh": "规范先行，严格门禁。先写完整规范，再按任务逐个实现和审查。",
+                     "en": "Spec-first with strict gates. Write complete specs first, then implement and review task by task."},
+        },
+        "quick-start": {
+            "name": {"zh": "Quick-Start", "en": "Quick-Start"},
+            "desc": {"zh": "最小化设置。只有一个 AGENTS.md + COLLAB.md，适合快速原型和小项目。",
+                     "en": "Minimal setup. Just AGENTS.md + COLLAB.md. For rapid prototypes and small projects."},
+        },
+        "parallel-team": {
+            "name": {"zh": "Parallel-Team", "en": "Parallel-Team"},
+            "desc": {"zh": "两个 Agent 同时并行工作。通过分离状态文件 + git 仲裁解决并发冲突。",
+                     "en": "Two agents work in parallel. Solves concurrency via split state files + git arbitration."},
+        },
+    },
+
+    # 流水线阶段名称
+    "stage": {
+        "discovery":    {"zh": "需求澄清",   "en": "Discovery"},
+        "architecture": {"zh": "架构设计",   "en": "Architecture"},
+        "task_breakdown":{"zh":"任务分解",   "en": "Task Breakdown"},
+        "implement":    {"zh": "编码实现",   "en": "Implementation"},
+        "self_test":    {"zh": "自测验证",   "en": "Self-Test"},
+        "review":       {"zh": "交付审查",   "en": "Review"},
+        "fix":          {"zh": "整改修复",   "en": "Fix"},
+        "escalation":   {"zh": "升级修复",   "en": "Escalation Fix"},
+        "acceptance":   {"zh": "最终验收",   "en": "Final Acceptance"},
+        "plan_together":{"zh": "联合规划",   "en": "Joint Planning"},
+        "claim_tasks":  {"zh": "认领任务",   "en": "Claim Tasks"},
+        "parallel_work":{"zh": "并行开发",   "en": "Parallel Dev"},
+        "merge_review": {"zh": "合并审查",   "en": "Merge Review"},
+        "fix_merge":    {"zh": "合并修复",   "en": "Fix Merge"},
+        "final_accept": {"zh": "最终验收",   "en": "Final Accept"},
+        "plan":         {"zh": "规划",       "en": "Plan"},
+        "build":        {"zh": "构建",       "en": "Build"},
+        "check":        {"zh": "检查",       "en": "Check"},
+        "plan_together_p":{"zh":"联合规划",  "en": "Joint Planning"},
+        "impl_review":  {"zh": "实现+审查循环","en":"Impl+Review Loop"},
+        "integration":  {"zh": "集成验证",   "en": "Integration"},
+        "signoff":      {"zh": "签字交付",   "en": "Signoff"},
+        "spec_init":    {"zh": "规范初始化", "en": "Spec Init"},
+        "requirements": {"zh": "需求编写",   "en": "Requirements"},
+        "design":       {"zh": "架构设计",   "en": "Design"},
+        "tasks":        {"zh": "任务分解",   "en": "Tasks"},
+        "parallel_impl":{"zh": "并行实现",   "en": "Parallel Impl"},
+        "cross_review": {"zh": "交叉审查",   "en": "Cross Review"},
+        "merge_test":   {"zh": "合并测试",   "en": "Merge Test"},
+        "joint_accept": {"zh": "联合验收",   "en": "Joint Accept"},
+    },
+
+    # 模板内容
+    "tmpl": {
+        "agents_header": {
+            "zh": "# AGENTS.md — 项目身份证 & 协作流水线定义\n\n> 本文件是项目的永久元信息，两个 agent 启动时第一件事就是读它。\n> 修改频率：低（技术栈/流水线变更时更新）。",
+            "en": "# AGENTS.md — Project Identity & Collaboration Pipeline\n\n> This file is the permanent metadata of the project. Both agents read it first on startup.\n> Update frequency: Low (only when tech stack or pipeline changes)."
+        },
+        "agents_project_info": {
+            "zh": "## 项目信息\n\n- **名称**：{name}\n- **创建时间**：{time}\n- **协作模式**：{mode}",
+            "en": "## Project Info\n\n- **Name**: {name}\n- **Created**: {time}\n- **Mode**: {mode}"
+        },
+        "agents_tech_stack": {
+            "zh": "## 技术栈\n\n<!-- 首次规划后填写 -->",
+            "en": "## Tech Stack\n\n<!-- Fill after initial planning -->"
+        },
+        "agents_roles": {
+            "zh": "## 协作模式\n\n### Agent A — {a_name}\n- **角色**：{a_role}\n- **模型**：{a_model}\n- **职责**：{a_duties}\n\n### Agent B — {b_name}\n- **角色**：{b_role}\n- **模型**：{b_model}\n- **职责**：{b_duties}",
+            "en": "## Collaboration Mode\n\n### Agent A — {a_name}\n- **Role**: {a_role}\n- **Model**: {a_model}\n- **Duties**: {a_duties}\n\n### Agent B — {b_name}\n- **Role**: {b_role}\n- **Model**: {b_model}\n- **Duties**: {b_duties}"
+        },
+        "agents_pipeline": {
+            "zh": "## 开发流水线（{n} 道工序）\n\n```\n{stages}\n```",
+            "en": "## Development Pipeline ({n} stages)\n\n```\n{stages}\n```"
+        },
+        "agents_rules": {
+            "zh": """## 关键规则
+
+1. **COLLAB.md 是唯一真相源**：所有状态变更必须写入，不靠记忆
+2. **失败不跳级**：任何阶段不通过必须回到实现层重做
+3. **先读后写**：每个 agent 启动时第一件事：读 AGENTS.md → COLLAB.md → specs/
+4. **无证据不签字**：验收必须基于可验证证据""",
+            "en": """## Key Rules
+
+1. **COLLAB.md is the single source of truth**: All state changes must be written, not memorized
+2. **Failures don't skip stages**: Any stage failure must return to implementation
+3. **Read before write**: Every agent reads AGENTS.md → COLLAB.md → specs/ on startup
+4. **No evidence, no sign-off**: Acceptance requires verifiable evidence"""
+        },
+        "collab_header": {
+            "zh": """# COLLAB.md — Agent 实时协作状态
+
+> ⚠️ **唯一真相源**：所有 agent 启动时第一读取、结束前最后写入。
+> 保持精简（3分钟可读完），过期信息删除，不要堆积历史。""",
+            "en": """# COLLAB.md — Agent Real-Time Collaboration State
+
+> ⚠️ **Single source of truth**: Every agent reads this first on startup and writes last before exit.
+> Keep it concise (3 min read), delete stale info, don't accumulate history."""
+        },
+        "collab_current_stage": {
+            "zh": "## 📍 当前流水线阶段\n\n<!-- 阶段流转：{flow} -->\n⏳ **{first_stage}** — 等待 {a_name} 启动",
+            "en": "## 📍 Current Pipeline Stage\n\n<!-- Stage flow: {flow} -->\n⏳ **{first_stage}** — Waiting for {a_name} to start"
+        },
+        "collab_task_table_header": {
+            "zh": "## 🗺️ 任务状态总览\n\n| 任务ID | 任务名称 | 状态 | 负责人 | 最新 commit | 迭代轮次 |\n|--------|---------|------|--------|------------|---------|\n| - | 等待 {a_name} 初始化 | - | - | - | - |",
+            "en": "## 🗺️ Task Status Overview\n\n| Task ID | Name | Status | Owner | Latest Commit | Iteration |\n|--------|------|--------|-------|------------|-----------|\n| - | Awaiting {a_name} init | - | - | - | - |"
+        },
+        "collab_sections": {
+            "zh": """---
+
+## 🔍 当前任务详情
+
+_等待 {a_name} 初始化_
+
+---
+
+## 📋 活跃决策
+
+_暂无_
+
+---
+
+## 🐛 陷阱 & 已知问题
+
+_暂无_
+
+---
+
+## 🚨 升级记录
+
+_暂无升级_
+
+---
+
+## 📝 审查记录
+
+_暂无审查_
+
+---
+
+## 🤝 Handoff 接力区
+
+> **→ {a_name}**：等待首次项目规划。请阅读 AGENTS.md 了解流水线，然后在 specs/active/ 下创建规范文档。""",
+            "en": """---
+
+## 🔍 Current Task Details
+
+_Waiting for {a_name} to initialize_
+
+---
+
+## 📋 Active Decisions
+
+_None yet_
+
+---
+
+## 🐛 Pitfalls & Known Issues
+
+_None yet_
+
+---
+
+## 🚨 Escalation Log
+
+_No escalations_
+
+---
+
+## 📝 Review Log
+
+_No reviews yet_
+
+---
+
+## 🤝 Handoff Zone
+
+> **→ {a_name}**: Waiting for initial project planning. Please read AGENTS.md for the pipeline, then create spec docs under specs/active/."""
+        },
+        "tasks_header": {
+            "zh": """# 任务列表 & 状态追踪
+
+> 状态机：TODO → IN_PROGRESS → SELF_TESTED → UNDER_REVIEW → APPROVED / REVISION_REQUIRED → FIXING → ESCALATED → GPT_FIXING → ACCEPTED → DONE""",
+            "en": """# Task List & Status Tracking
+
+> State machine: TODO → IN_PROGRESS → SELF_TESTED → UNDER_REVIEW → APPROVED / REVISION_REQUIRED → FIXING → ESCALATED → GPT_FIXING → ACCEPTED → DONE"""
+        },
+        "tasks_meta": {
+            "zh": """## 元信息
+
+- **总任务数**：0
+- **已完成**：0
+- **进行中**：0""",
+            "en": """## Meta
+
+- **Total Tasks**: 0
+- **Completed**: 0
+- **In Progress**: 0"""
+        },
+        "tasks_notes": {
+            "zh": """_等待分解任务_
+
+---
+
+## 实现笔记（跨任务知识传递）
+
+_暂无_""",
+            "en": """_Awaiting task breakdown_
+
+---
+
+## Implementation Notes (cross-task knowledge transfer)
+
+_None yet_"""
+        },
+        "review_template": {
+            "zh": """# 审查报告：Task N — [任务标题]
+
+- **审查日期**：YYYY-MM-DD
+- **审查人**：[Agent Name]
+- **审查轮次**：第 1 轮
+- **被审查 commit**：abc1234
+
+## 审查结论
+
+✅ **通过** / ❌ **不通过，需整改**
+
+## 审查维度
+
+### 1. 功能完整性
+- [ ] 验收标准逐条满足
+- 问题：...
+
+### 2. 代码质量
+- [ ] 命名清晰、符合规范
+- 问题：...
+
+### 3. 测试覆盖
+- [ ] 测试通过，覆盖率达标
+- 问题：...
+
+### 4. 安全性
+- [ ] 无注入风险、无密钥泄露
+- 问题：...
+
+### 5. 架构合规
+- [ ] 符合设计，未破坏模块边界
+- 问题：...
+
+## 整改清单（如果不通过）
+
+| 编号 | 问题描述 | 严重程度 | 涉及文件 | 修复建议 |
+|------|---------|---------|---------|---------|
+| F-01 | ... | 🔴阻塞 / 🟡建议 | src/x.ts | ... |""",
+            "en": """# Review Report: Task N — [Title]
+
+- **Review Date**: YYYY-MM-DD
+- **Reviewer**: [Agent Name]
+- **Round**: 1
+- **Commit Reviewed**: abc1234
+
+## Verdict
+
+✅ **Pass** / ❌ **Fail — Revision Required**
+
+## Review Dimensions
+
+### 1. Functional Completeness
+- [ ] All acceptance criteria met
+- Issues: ...
+
+### 2. Code Quality
+- [ ] Clear naming, follows conventions
+- Issues: ...
+
+### 3. Test Coverage
+- [ ] Tests pass, coverage meets threshold
+- Issues: ...
+
+### 4. Security
+- [ ] No injection risks, no secret leaks
+- Issues: ...
+
+### 5. Architecture Compliance
+- [ ] Follows design, no boundary violations
+- Issues: ...
+
+## Fix Checklist (if failed)
+
+| # | Issue | Severity | Files | Suggestion |
+|---|-------|----------|-------|------------|
+| F-01 | ... | 🔴Blocker / 🟡Suggestion | src/x.ts | ... |"""
+        },
+        "fix_template": {
+            "zh": """# 整改指令：Task N — [任务标题] — 第 X 轮
+
+- **下达日期**：YYYY-MM-DD
+- **基于审查**：review/review-T00N.md
+- **执行人**：[Agent Name]
+
+## 整改项
+
+### F-01：[问题简述] 🔴阻塞
+- **审查指出**：...
+- **期望结果**：...
+- **涉及文件**：src/xxx.ts
+
+## 整改后自检
+
+- [ ] 所有 🔴 阻塞项已修复
+- [ ] 所有测试仍然通过
+- [ ] 已 git commit""",
+            "en": """# Fix Order: Task N — [Title] — Round X
+
+- **Issued**: YYYY-MM-DD
+- **Based on review**: review/review-T00N.md
+- **Assignee**: [Agent Name]
+
+## Fix Items
+
+### F-01: [Brief] 🔴Blocker
+- **Review finding**: ...
+- **Expected result**: ...
+- **Affected files**: src/xxx.ts
+
+## Post-Fix Self-Check
+
+- [ ] All 🔴 blockers resolved
+- [ ] All tests still pass
+- [ ] Git committed"""
+        },
+        "acceptance_template": {
+            "zh": """# 最终验收报告
+
+> **签字人**：Agent A
+> **原则**：无证据不签字
+
+## 验收检查清单
+
+### 1. 功能完整性
+- [ ] 所有任务标记为 APPROVED 或 ACCEPTED
+- 证据：...
+
+### 2. 测试通过
+- [ ] 全部测试通过
+- 证据：...
+
+### 3. 代码质量
+- [ ] 无 linter 错误、无 TODO 残留
+- 证据：...
+
+### 4. 安全性
+- [ ] 无密钥泄露、无注入风险
+- 证据：...
+
+### 5. 文档
+- [ ] README 已更新
+- 证据：...
+
+### 6. 部署就绪
+- [ ] 构建脚本正常运行
+- 证据：...
+
+---
+
+## 验收结论
+
+### ✅ 验收通过 / ⚠️ 有条件通过 / ❌ 不通过
+
+- **验收人**：[Agent Name]
+- **日期**：YYYY-MM-DD""",
+            "en": """# Final Acceptance Report
+
+> **Signatory**: Agent A
+> **Principle**: No evidence, no sign-off
+
+## Acceptance Checklist
+
+### 1. Functional Completeness
+- [ ] All tasks marked APPROVED or ACCEPTED
+- Evidence: ...
+
+### 2. Tests Passing
+- [ ] All tests pass
+- Evidence: ...
+
+### 3. Code Quality
+- [ ] No linter errors, no TODO leftovers
+- Evidence: ...
+
+### 4. Security
+- [ ] No secret leaks, no injection risks
+- Evidence: ...
+
+### 5. Documentation
+- [ ] README updated
+- Evidence: ...
+
+### 6. Deployment Ready
+- [ ] Build scripts run successfully
+- Evidence: ...
+
+---
+
+## Conclusion
+
+### ✅ Accepted / ⚠️ Conditional / ❌ Rejected
+
+- **Signatory**: [Agent Name]
+- **Date**: YYYY-MM-DD"""
+        },
+        "escalation_file": {
+            "zh": "# 升级记录\n\n暂无升级记录。\n",
+            "en": "# Escalation Log\n\nNo escalations recorded.\n"
+        },
+        "parallel_guide": {
+            "zh": """# 并行协作快速入门
+
+## 文件分工
+
+```
+项目根目录/
+├── AGENTS.md                  ← [只读] 项目元信息
+├── agent-{a}.md              ← [{a} 专写] 状态文件
+├── agent-{b}.md              ← [{b} 专写] 状态文件
+├── board.md                   ← [共享写] 任务看板（git 仲裁）
+├── tasks/
+│   ├── T001-xxx.md           ← [共享写] 任务定义
+│   └── T002-yyy.md
+├── specs/
+│   ├── overview.md           ← [只读] 项目总览
+│   └── architecture.md       ← [只读] 架构设计
+├── GIT_WORKTREE.md            ← [参考] worktree 隔离指南
+└── src/                       ← [共享写] 实际代码
+```
+
+## {a} 启动流程
+
+1. `git pull`
+2. 读 `AGENTS.md` → `agent-{a}.md` → `board.md`
+3. 认领任务 → 更新 board.md → `git commit` → `git push`
+4. 写代码 → 更新自己的状态文件 → commit → push
+5. 需要对方做的事写在「我需要对方做的事」区
+
+## {b} 启动流程
+
+1. `git pull`
+2. 读 `AGENTS.md` → `agent-{b}.md` → `board.md`
+3. 查看对方状态文件的「我需要对方做的事」区
+4. 认领任务 → 更新 board.md → commit → push
+
+## 关键原则
+
+| 原则 | 说明 |
+|------|------|
+| 写完就 commit | 不要攒一堆改动再提交 |
+| 开始前先 pull | 看到最新状态再动手 |
+| 不写对方的文件 | 互斥写是防止冲突的基础 |
+| 冲突不慌 | git rebase 后手动解决，在 board.md 记录 |""",
+            "en": """# Parallel Collaboration Quick-Start
+
+## File Ownership
+
+```
+project/
+├── AGENTS.md                  ← [read-only] Project metadata
+├── agent-{a}.md              ← [{a} exclusive write] Status file
+├── agent-{b}.md              ← [{b} exclusive write] Status file
+├── board.md                   ← [shared write] Task board (git-arbitrated)
+├── tasks/
+│   ├── T001-xxx.md           ← [shared write] Task definitions
+│   └── T002-yyy.md
+├── specs/
+│   ├── overview.md           ← [read-only] Project overview
+│   └── architecture.md       ← [read-only] Architecture design
+├── GIT_WORKTREE.md            ← [reference] Worktree isolation guide
+└── src/                       ← [shared write] Actual code
+```
+
+## {a} Startup Flow
+
+1. `git pull`
+2. Read `AGENTS.md` → `agent-{a}.md` → `board.md`
+3. Claim a task → update board.md → `git commit` → `git push`
+4. Write code → update own status file → commit → push
+5. Put requests for the other agent in the "What I need from counterpart" section
+
+## {b} Startup Flow
+
+1. `git pull`
+2. Read `AGENTS.md` → `agent-{b}.md` → `board.md`
+3. Check counterpart's "What I need" section
+4. Claim a task → update board.md → commit → push
+
+## Key Principles
+
+| Principle | Description |
+|-----------|-------------|
+| Commit after each change | Don't batch unrelated changes |
+| Pull before starting | See latest state before acting |
+| Never write counterpart's file | Mutex writes prevent conflicts |
+| Don't panic on conflict | `git rebase`, resolve manually, log in board.md |"""
+        },
+        "readme_title": {
+            "zh": "# {name} — {mode} 协作模式\n\n> {desc}",
+            "en": "# {name} — {mode} Collaboration Mode\n\n> {desc}"
+        },
+        "readme_arch": {
+            "zh": """## 协作架构
+
+```
+┌─────────────────┐         ┌─────────────────┐
+│  {a_name:<15} │  specs/  │  {b_name:<15} │
+│  {a_role:<15} │◄───────▶│  {b_role:<15} │
+│  {a_duties}│  COLLAB │  {b_duties}│
+└─────────────────┘         └─────────────────┘
+```
+
+## 流水线
+
+```
+{pipeline_flow}
+```
+
+## 关键文件
+
+| 文件 | 作用 |
+|------|------|
+| `AGENTS.md` | 项目身份证 + 流水线定义 |
+| `COLLAB.md` | 唯一真相源：当前状态 |
+| `specs/active/tasks.md` | 任务分解 + 状态追踪 |
+| `specs/active/review/` | 审查报告 |
+| `specs/active/fix-orders/` | 整改指令 |
+
+## 快速开始
+
+### Agent A 启动
+读 `AGENTS.md` → `COLLAB.md` → 执行你的流水线阶段
+
+### Agent B 启动
+读 `AGENTS.md` → `COLLAB.md` → `specs/active/tasks.md` → 开始编码
+
+---
+
+*由 Bridge 生成于 {time}*""",
+            "en": """## Collaboration Architecture
+
+```
+┌─────────────────┐         ┌─────────────────┐
+│  {a_name:<15} │  specs/  │  {b_name:<15} │
+│  {a_role:<15} │◄───────▶│  {b_role:<15} │
+│  {a_duties}│  COLLAB │  {b_duties}│
+└─────────────────┘         └─────────────────┘
+```
+
+## Pipeline
+
+```
+{pipeline_flow}
+```
+
+## Key Files
+
+| File | Purpose |
+|------|---------|
+| `AGENTS.md` | Project identity + pipeline definition |
+| `COLLAB.md` | Single source of truth: current state |
+| `specs/active/tasks.md` | Task breakdown + status tracking |
+| `specs/active/review/` | Review reports |
+| `specs/active/fix-orders/` | Fix instructions |
+
+## Quick Start
+
+### Agent A
+Read `AGENTS.md` → `COLLAB.md` → execute your pipeline stage
+
+### Agent B
+Read `AGENTS.md` → `COLLAB.md` → `specs/active/tasks.md` → start coding
+
+---
+
+*Generated by Bridge at {time}*"""
+        },
+        "gitignore_content": {
+            "zh": "# OS\n.DS_Store\nThumbs.db\n\n# IDE\n.vscode/\n.idea/\n\n# Dependencies\nnode_modules/\n__pycache__/\n*.pyc\n\n# Build\ndist/\nbuild/\ntarget/\n\n# Env\n.env\n.env.local\n",
+            "en": "# OS\n.DS_Store\nThumbs.db\n\n# IDE\n.vscode/\n.idea/\n\n# Dependencies\nnode_modules/\n__pycache__/\n*.pyc\n\n# Build\ndist/\nbuild/\ntarget/\n\n# Env\n.env\n.env.local\n"
+        },
+    },
+}
+
+# ═══════════════════════════════════════════════════════════════
 # 模板定义
 # ═══════════════════════════════════════════════════════════════
 
@@ -122,338 +864,87 @@ TEMPLATES = {
 # 文件生成引擎
 # ═══════════════════════════════════════════════════════════════
 
-def generate_agents_md(mode, agent_a, agent_b, project_name="未命名项目"):
+def generate_agents_md(mode, agent_a, agent_b, project_name="未命名项目", lang="zh"):
     """生成 AGENTS.md 内容"""
     tmpl = TEMPLATES[mode]
-    pipeline_md = ""
+    a_name = agent_a.get('name', 'Agent A')
+    a_role = agent_a.get('role', '')
+    a_model = agent_a.get('model', '')
+    b_name = agent_b.get('name', 'Agent B')
+    b_role = agent_b.get('role', '')
+    b_model = agent_b.get('model', '')
+
+    a_duties = "、".join([T(f"stage.{s['id']}", lang) for s in tmpl["pipeline"] if s['agent'] in ('Agent A', 'Both')])
+    b_duties = "、".join([T(f"stage.{s['id']}", lang) for s in tmpl["pipeline"] if s['agent'] in ('Agent B', 'Both')])
+
+    stages_str = ""
     for i, stage in enumerate(tmpl["pipeline"]):
-        pipeline_md += f"│  {i+1}. {stage['name']} ({stage['agent']})\n"
+        stages_str += "│  " + str(i+1) + ". " + T(f"stage.{stage['id']}", lang) + " (" + stage['agent'] + ")\n"
 
-    return f"""# AGENTS.md — 项目身份证 & 协作流水线定义
-
-> 本文件是项目的永久元信息，两个 agent 启动时第一件事就是读它。
-> 修改频率：低（技术栈/流水线变更时更新）。
-
-## 项目信息
-
-- **名称**：{project_name}
-- **创建时间**：{datetime.now().strftime('%Y-%m-%d %H:%M')}
-- **协作模式**：{tmpl['name']}
-
-## 技术栈
-
-<!-- 首次规划后填写 -->
-
-## 协作模式
-
-### Agent A — {agent_a.get('name', 'Agent A')}
-- **角色**：{agent_a.get('role', '未指定')}
-- **模型**：{agent_a.get('model', '未指定')}
-- **职责**：{"、".join([s['name'] for s in tmpl['pipeline'] if s['agent'] in ('Agent A', 'Both')])}
-
-### Agent B — {agent_b.get('name', 'Agent B')}
-- **角色**：{agent_b.get('role', '未指定')}
-- **模型**：{agent_b.get('model', '未指定')}
-- **职责**：{"、".join([s['name'] for s in tmpl['pipeline'] if s['agent'] in ('Agent B', 'Both')])}
-
-## 开发流水线（{len(tmpl['pipeline'])} 道工序）
-
-```
-{pipeline_md.strip()}
-```
-
-## 关键规则
-
-1. **COLLAB.md 是唯一真相源**：所有状态变更必须写入，不靠记忆
-2. **失败不跳级**：任何阶段不通过必须回到实现层重做
-3. **先读后写**：每个 agent 启动时第一件事：读 AGENTS.md → COLLAB.md → specs/
-4. **无证据不签字**：验收必须基于可验证证据
-"""
+    return T("tmpl.agents_header", lang) + "\n\n" + \
+           T("tmpl.agents_project_info", lang, name=project_name,
+             time=datetime.now().strftime('%Y-%m-%d %H:%M'),
+             mode=T(f"mode.{mode}.name", lang)) + "\n\n" + \
+           T("tmpl.agents_tech_stack", lang) + "\n\n" + \
+           T("tmpl.agents_roles", lang, a_name=a_name, a_role=a_role, a_model=a_model,
+             a_duties=a_duties, b_name=b_name, b_role=b_role, b_model=b_model, b_duties=b_duties) + "\n\n" + \
+           T("tmpl.agents_pipeline", lang, n=len(tmpl["pipeline"]), stages=stages_str.strip()) + "\n\n" + \
+           T("tmpl.agents_rules", lang)
 
 
-def generate_collab_md(mode, agent_a, agent_b, pipeline_custom=None):
+def generate_collab_md(mode, agent_a, agent_b, pipeline_custom=None, lang="zh"):
     """生成 COLLAB.md 内容"""
     tmpl = TEMPLATES[mode]
     pipeline = pipeline_custom if pipeline_custom else tmpl["pipeline"]
-    agent_a_name = agent_a.get('name', 'Agent A')
-    agent_b_name = agent_b.get('name', 'Agent B')
-
-    task_table = "| 任务ID | 任务名称 | 状态 | 负责人 | 最新 commit | 迭代轮次 |\n"
-    task_table += "|--------|---------|------|--------|------------|---------|\n"
-    task_table += "| - | 等待 {a} 初始化 | - | - | - | - |\n".format(a=agent_a_name)
-
-    return f"""# COLLAB.md — Agent 实时协作状态
-
-> ⚠️ **唯一真相源**：所有 agent 启动时第一读取、结束前最后写入。
-> 保持精简（3分钟可读完），过期信息删除，不要堆积历史。
-
----
-
-## 📍 当前流水线阶段
-
-<!-- 阶段流转：{' → '.join([s['name'] for s in pipeline])} -->
-⏳ **{pipeline[0]['name']}** — 等待 {agent_a_name} 启动
-
----
-
-## 🗺️ 任务状态总览
-
-{task_table}
-
----
-
-## 🔍 当前任务详情
-
-_等待 {agent_a_name} 初始化_
-
----
-
-## 📋 活跃决策
-
-_暂无_
-
----
-
-## 🐛 陷阱 & 已知问题
-
-_暂无_
-
----
-
-## 🚨 升级记录
-
-_暂无升级_
-
----
-
-## 📝 审查记录
-
-_暂无审查_
-
----
-
-## 🤝 Handoff 接力区
-
-> **→ {agent_a_name}**：等待首次项目规划。请阅读 AGENTS.md 了解流水线，然后在 specs/active/ 下创建规范文档。
-"""
+    a_name = agent_a.get('name', 'Agent A')
+    flow = " → ".join([T(f"stage.{s['id']}", lang) for s in pipeline])
+    first = T(f"stage.{pipeline[0]['id']}", lang)
+    return T("tmpl.collab_header", lang) + "\n\n---\n\n" + \
+           T("tmpl.collab_current_stage", lang, flow=flow, first_stage=first, a_name=a_name) + "\n\n---\n\n" + \
+           T("tmpl.collab_task_table_header", lang, a_name=a_name) + "\n\n" + \
+           T("tmpl.collab_sections", lang, a_name=a_name)
 
 
-def generate_tasks_md(mode):
+def generate_tasks_md(mode, lang="zh"):
     """生成 tasks.md 模板"""
-    tmpl = TEMPLATES[mode]
-    return f"""# 任务列表 & 状态追踪
-
-> 状态机：TODO → IN_PROGRESS → SELF_TESTED → UNDER_REVIEW → APPROVED / REVISION_REQUIRED → FIXING → ESCALATED → GPT_FIXING → ACCEPTED → DONE
-
----
-
-## 元信息
-
-- **总任务数**：0
-- **已完成**：0
-- **进行中**：0
-
----
-
-## 任务列表
-
-<!--
-每个任务按以下模板填写：
-
-### Task N: [任务标题]
-- **状态**：TODO
-- **负责人**：Agent A / Agent B
-- **依赖**：Task X（无依赖填 无）
-- **涉及文件**：src/xxx.ts
-- **迭代轮次**：0
-
-#### 目标
-[一句话说清楚要做什么]
-
-#### 验收标准
-- [ ] 功能正常工作
-- [ ] 通过单元测试
-- [ ] 无 linter 错误
-
-#### 进度日志
-| 日期 | 状态变更 | 操作人 | 备注 |
-|------|---------|--------|------|
--->
-
-_等待分解任务_
-
----
-
-## 实现笔记（跨任务知识传递）
-
-_暂无_
-"""
+    return T("tmpl.tasks_header", lang) + "\n\n---\n\n" + \
+           T("tmpl.tasks_meta", lang) + "\n\n---\n\n" + \
+           T("tmpl.tasks_notes", lang)
 
 
-def generate_review_template():
-    """生成审查报告模板"""
-    return """# 审查报告：Task N — [任务标题]
-
-- **审查日期**：YYYY-MM-DD
-- **审查人**：[Agent Name]
-- **审查轮次**：第 1 轮
-- **被审查 commit**：abc1234
-
-## 审查结论
-
-✅ **通过** / ❌ **不通过，需整改**
-
-## 审查维度
-
-### 1. 功能完整性
-- [ ] 验收标准逐条满足
-- 问题：...
-
-### 2. 代码质量
-- [ ] 命名清晰、符合规范
-- 问题：...
-
-### 3. 测试覆盖
-- [ ] 测试通过，覆盖率达标
-- 问题：...
-
-### 4. 安全性
-- [ ] 无注入风险、无密钥泄露
-- 问题：...
-
-### 5. 架构合规
-- [ ] 符合设计，未破坏模块边界
-- 问题：...
-
-## 整改清单（如果不通过）
-
-| 编号 | 问题描述 | 严重程度 | 涉及文件 | 修复建议 |
-|------|---------|---------|---------|---------|
-| F-01 | ... | 🔴阻塞 / 🟡建议 | src/x.ts | ... |
-"""
+def generate_review_template(lang="zh"):
+    return T("tmpl.review_template", lang)
 
 
-def generate_fix_template():
-    """生成整改指令模板"""
-    return """# 整改指令：Task N — [任务标题] — 第 X 轮
-
-- **下达日期**：YYYY-MM-DD
-- **基于审查**：review/review-T00N.md
-- **执行人**：[Agent Name]
-
-## 整改项
-
-### F-01：[问题简述] 🔴阻塞
-- **审查指出**：...
-- **期望结果**：...
-- **涉及文件**：src/xxx.ts
-
-## 整改后自检
-
-- [ ] 所有 🔴 阻塞项已修复
-- [ ] 所有测试仍然通过
-- [ ] 已 git commit
-"""
+def generate_fix_template(lang="zh"):
+    return T("tmpl.fix_template", lang)
 
 
-def generate_acceptance_md():
-    """生成验收报告模板"""
-    return """# 最终验收报告
-
-> **签字人**：Agent A
-> **原则**：无证据不签字
-
-## 验收检查清单
-
-### 1. 功能完整性
-- [ ] 所有任务标记为 APPROVED 或 ACCEPTED
-- 证据：...
-
-### 2. 测试通过
-- [ ] 全部测试通过
-- 证据：...
-
-### 3. 代码质量
-- [ ] 无 linter 错误、无 TODO 残留
-- 证据：...
-
-### 4. 安全性
-- [ ] 无密钥泄露、无注入风险
-- 证据：...
-
-### 5. 文档
-- [ ] README 已更新
-- 证据：...
-
-### 6. 部署就绪
-- [ ] 构建脚本正常运行
-- 证据：...
-
----
-
-## 验收结论
-
-### ✅ 验收通过 / ⚠️ 有条件通过 / ❌ 不通过
-
-- **验收人**：[Agent Name]
-- **日期**：YYYY-MM-DD
-"""
+def generate_acceptance_md(lang="zh"):
+    return T("tmpl.acceptance_template", lang)
 
 
-def generate_readme_md(mode, agent_a, agent_b, project_name):
+def generate_readme_md(mode, agent_a, agent_b, project_name, lang="zh"):
     """生成 README.md"""
     tmpl = TEMPLATES[mode]
-    agent_a_name = agent_a.get('name', 'Agent A')
-    agent_b_name = agent_b.get('name', 'Agent B')
+    a_name = agent_a.get('name', 'Agent A')
+    a_role = agent_a.get('role', '')
+    b_name = agent_b.get('name', 'Agent B')
+    b_role = agent_b.get('role', '')
 
-    pipeline_flow = ""
-    for i, stage in enumerate(tmpl["pipeline"]):
+    a_short = "、".join([T(f"stage.{s['id']}", lang) for s in tmpl["pipeline"] if s['agent'] in ('Agent A', 'Both')][:3])
+    b_short = "、".join([T(f"stage.{s['id']}", lang) for s in tmpl["pipeline"] if s['agent'] in ('Agent B', 'Both')][:3])
+
+    pipe_flow = ""
+    for i, s in enumerate(tmpl["pipeline"]):
         arrow = "" if i == len(tmpl["pipeline"]) - 1 else " ──→"
-        pipeline_flow += f"  {stage['name']} ({stage['agent']}){arrow}\n"
+        pipe_flow += "  " + T(f"stage.{s['id']}", lang) + " (" + s['agent'] + ")" + arrow + "\n"
 
-    return f"""# {project_name} — {tmpl['name']} 协作模式
-
-> {tmpl['description']}
-
-## 协作架构
-
-```
-┌─────────────────┐         ┌─────────────────┐
-│  {agent_a_name:<15} │  specs/  │  {agent_b_name:<15} │
-│  {agent_a.get('role', ''):<15} │◄───────▶│  {agent_b.get('role', ''):<15} │
-│                 │ COLLAB  │                 │
-│  {"、".join([s['name'] for s in tmpl['pipeline'] if s['agent'] in ('Agent A', 'Both')][:3])}│         │  {"、".join([s['name'] for s in tmpl['pipeline'] if s['agent'] in ('Agent B', 'Both')][:3])}│
-└─────────────────┘         └─────────────────┘
-```
-
-## 流水线
-
-```
-{pipeline_flow.strip()}
-```
-
-## 关键文件
-
-| 文件 | 作用 |
-|------|------|
-| `AGENTS.md` | 项目身份证 + 流水线定义 |
-| `COLLAB.md` | 唯一真相源：当前状态 |
-| `specs/active/tasks.md` | 任务分解 + 状态追踪 |
-| `specs/active/review/` | 审查报告 |
-| `specs/active/fix-orders/` | 整改指令 |
-
-## 快速开始
-
-### Agent A 启动
-读 `AGENTS.md` → `COLLAB.md` → 执行你的流水线阶段
-
-### Agent B 启动
-读 `AGENTS.md` → `COLLAB.md` → `specs/active/tasks.md` → 开始编码
-
----
-
-*由 Bridge 生成于 {datetime.now().strftime('%Y-%m-%d %H:%M')}*
-"""
+    return T("tmpl.readme_title", lang, name=project_name, mode=T(f"mode.{mode}.name", lang),
+             desc=T(f"mode.{mode}.desc", lang)) + "\n\n" + \
+           T("tmpl.readme_arch", lang, a_name=a_name, a_role=a_role, b_name=b_name, b_role=b_role,
+             a_duties=a_short, b_duties=b_short, pipeline_flow=pipe_flow.strip(),
+             time=datetime.now().strftime('%Y-%m-%d %H:%M'))
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -718,7 +1209,8 @@ def llm_enhance_description(api_key, api_base, model, user_input, mode_name):
 class BridgeApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("Bridge — AI Agent 协作桥接器")
+        self.lang = "zh"
+        self.root.title(T("window_title", self.lang))
         self.root.geometry("1000x720")
         self.root.minsize(900, 600)
 
@@ -731,7 +1223,7 @@ class BridgeApp:
         self.mode = tk.StringVar(value="architect-engineer")
         self.project_name = tk.StringVar(value="")
         self.agent_a_name = tk.StringVar(value="GPT")
-        self.agent_a_role = tk.StringVar(value="架构师 / 审核员")
+        self.agent_a_role = tk.StringVar(value=T("mode.architect-engineer.agent_a.role", self.lang) if False else "架构师 / 审核员")
         self.agent_a_model = tk.StringVar(value="GPT-4")
         self.agent_b_name = tk.StringVar(value="Reasonix")
         self.agent_b_role = tk.StringVar(value="工程师 / 执行者")
@@ -761,6 +1253,16 @@ class BridgeApp:
                   font=("Microsoft YaHei", 16, "bold")).pack(side=tk.LEFT)
         ttk.Label(title_frame, text="在项目文件夹中生成 AI 协作流程文件",
                   font=("Microsoft YaHei", 9)).pack(side=tk.LEFT, padx=10)
+
+        # 语言切换
+        lang_frame = ttk.Frame(title_frame)
+        lang_frame.pack(side=tk.RIGHT)
+        self.btn_zh = ttk.Button(lang_frame, text="中", width=3,
+                                  command=lambda: self._switch_lang("zh"))
+        self.btn_zh.pack(side=tk.LEFT, padx=1)
+        self.btn_en = ttk.Button(lang_frame, text="En", width=3,
+                                  command=lambda: self._switch_lang("en"))
+        self.btn_en.pack(side=tk.LEFT, padx=1)
 
         # Notebook 分页
         notebook = ttk.Notebook(main_frame)
@@ -959,6 +1461,19 @@ class BridgeApp:
             self.agent_b_role.set(tmpl["agent_b"]["role"])
             self.agent_b_model.set(tmpl["agent_b"]["model"])
 
+    def _switch_lang(self, lang):
+        self.lang = lang
+        set_lang(lang)
+        self.root.title(T("window_title", lang))
+        # 刷新模式标签
+        for mode_key, fm in self.mode_frames.items():
+            concurrency = "⚡Parallel" if mode_key == "parallel-team" else ("🔗Serial" if lang == "en" else "🔗串行")
+            if lang == "zh":
+                concurrency = "⚡并行" if mode_key == "parallel-team" else "🔗串行"
+            fm.configure(text=f"{TEMPLATES[mode_key]['icon']} {T(f'mode.{mode_key}.name', lang)} ({concurrency})")
+        self._on_mode_change()
+        self.status_label.config(text=T("status_ready", lang))
+
     def _init_custom_pipeline(self):
         """初始化自定义流水线（使用 architect-engineer 作为默认）"""
         self.custom_pipeline = [
@@ -1120,13 +1635,13 @@ class BridgeApp:
         else:
             preview += f"""
 📄 AGENTS.md:
-{generate_agents_md(mode, agent_a, agent_b, project_name)[:600]}...
+{generate_agents_md(mode, agent_a, agent_b, project_name, self.lang)[:600]}...
 
 📄 COLLAB.md:
-{generate_collab_md(mode, agent_a, agent_b, pipeline)[:600]}...
+{generate_collab_md(mode, agent_a, agent_b, pipeline, self.lang)[:600]}...
 
 📄 README.md:
-{generate_readme_md(mode, agent_a, agent_b, project_name)[:600]}...
+{generate_readme_md(mode, agent_a, agent_b, project_name, self.lang)[:600]}...
 
 ... 以及 specs/ 目录下的 tasks.md、review 模板、fix-orders 模板、acceptance.md 等
 """
@@ -1169,8 +1684,8 @@ class BridgeApp:
 
             if mode == "parallel-team":
                 # ── 并行模式：独立文件结构 ──
-                all_files["AGENTS.md"] = generate_agents_md(mode, agent_a, agent_b, project_name)
-                all_files["README.md"] = generate_readme_md(mode, agent_a, agent_b, project_name)
+                all_files["AGENTS.md"] = generate_agents_md(mode, agent_a, agent_b, project_name, self.lang)
+                all_files["README.md"] = generate_readme_md(mode, agent_a, agent_b, project_name, self.lang)
                 all_files[f"agent-{a_name.lower()}.md"] = generate_agent_status_md(
                     a_name, agent_a['role'], b_name)
                 all_files[f"agent-{b_name.lower()}.md"] = generate_agent_status_md(
@@ -1193,9 +1708,9 @@ class BridgeApp:
                            f"- **模块**：src/example\n\n## 目标\n[待填写]\n\n## 验收标准\n- [ ] 待填写\n")
             else:
                 # ── 串行模式：原逻辑 ──
-                all_files["AGENTS.md"] = generate_agents_md(mode, agent_a, agent_b, project_name)
-                all_files["COLLAB.md"] = generate_collab_md(mode, agent_a, agent_b, pipeline)
-                all_files["README.md"] = generate_readme_md(mode, agent_a, agent_b, project_name)
+                all_files["AGENTS.md"] = generate_agents_md(mode, agent_a, agent_b, project_name, self.lang)
+                all_files["COLLAB.md"] = generate_collab_md(mode, agent_a, agent_b, pipeline, self.lang)
+                all_files["README.md"] = generate_readme_md(mode, agent_a, agent_b, project_name, self.lang)
 
                 specs_active = os.path.join(target, "specs", "active")
                 specs_review = os.path.join(specs_active, "review")
@@ -1203,12 +1718,12 @@ class BridgeApp:
                 specs_archive = os.path.join(target, "specs", "archive")
 
                 spec_files = {
-                    os.path.join(specs_active, "tasks.md"): generate_tasks_md(mode),
-                    os.path.join(specs_active, "acceptance.md"): generate_acceptance_md(),
+                    os.path.join(specs_active, "tasks.md"): generate_tasks_md(mode, self.lang),
+                    os.path.join(specs_active, "acceptance.md"): generate_acceptance_md(self.lang),
                     os.path.join(specs_active, "escalation.md"):
-                        "# 升级记录\n\n暂无升级记录。\n",
-                    os.path.join(specs_review, "TEMPLATE.md"): generate_review_template(),
-                    os.path.join(specs_fix, "TEMPLATE.md"): generate_fix_template(),
+                        T("tmpl.escalation_file", self.lang),
+                    os.path.join(specs_review, "TEMPLATE.md"): generate_review_template(self.lang),
+                    os.path.join(specs_fix, "TEMPLATE.md"): generate_fix_template(self.lang),
                 }
 
                 for d in [specs_active, specs_review, specs_fix, specs_archive]:
@@ -1228,9 +1743,7 @@ class BridgeApp:
             gitignore_path = os.path.join(target, ".gitignore")
             if not os.path.exists(gitignore_path):
                 with open(gitignore_path, "w", encoding="utf-8") as f:
-                    f.write("# OS\n.DS_Store\nThumbs.db\n\n# IDE\n.vscode/\n.idea/\n\n"
-                           "# Dependencies\nnode_modules/\n__pycache__/\n*.pyc\n\n"
-                           "# Build\ndist/\nbuild/\ntarget/\n\n# Env\n.env\n.env.local\n")
+                    f.write(T("tmpl.gitignore_content", self.lang))
 
             # 生成报告
             report = f"已在 {target} 中生成以下文件：\n\n"
