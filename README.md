@@ -1,49 +1,115 @@
-# 操作指南：GPT + Reasonix 双 Agent 协作
+# Bridge — GPT + Reasonix 双 Agent 协作框架
 
-## 你的角色
-
-你是**人类项目经理**——负责在两匹马之间传递接力棒。不需要写代码，只需要在不同阶段把任务交给不同的 agent。
-
-## 完整流程
-
-### 第一步：提需求（你 → GPT）
-
-打开 ChatGPT/Codex，把 `AGENTS.md` 作为上下文喂给它，然后说：
-
-> 我要做一个 XXX 项目。请阅读 specs/active/README.md 了解规范格式，
-> 然后创建 specs/active/overview.md、architecture.md、tasks.md。
-> 最后更新 COLLAB.md，标记第一个任务为「进行中」并写一段给 Reasonix 的 handoff。
-
-### 第二步：编码（你 → Reasonix）
-
-把 Reasonix 打开到这个项目目录，说：
-
-> 请先读 AGENTS.md 和 COLLAB.md，然后读 specs/active/tasks.md，
-> 按顺序实现第一个标记为「待开始」的任务。
-> 完成后更新 COLLAB.md 汇报进度。
-
-### 第三步：审核（你 → GPT，可选）
-
-对于关键模块，切回 GPT 让它 review：
-
-> 请读取最近 git commit 的改动和 COLLAB.md，review 代码质量，
-> 如果通过就在 COLLAB.md 标记任务完成；否则写修改意见。
-
-### 第四步：循环
-
-重复第二步和第三步，直到 tasks.md 中所有任务完成。
-
-### 第五步：收尾
-
-让 GPT 把 `specs/active/` 移到 `specs/archive/`，更新 COLLAB.md 标记项目完成。
+> GPT 做大脑，Reasonix 做双手。一套带质量门禁的开发流水线。
 
 ---
 
-## 关键原则
+## 🏗️ 协作架构
+
+```
+                          ┌─────────────┐
+                          │   你（人类）  │
+                          └──────┬──────┘
+                                 │
+              ┌──────────────────┼──────────────────┐
+              ▼                                     ▼
+     ┌─────────────────┐                   ┌─────────────────┐
+     │  GPT（架构师）    │                   │ Reasonix（工程师）│
+     │                  │    specs/active/  │                  │
+     │ ① 需求澄清       │◄─────────────────▶│ ④ 编码实现       │
+     │ ② 架构设计       │    COLLAB.md      │ ⑤ 自测验证       │
+     │ ③ 任务分解       │                   │ ⑦ 整改修复       │
+     │ ⑥ 交付审查       │                   │ ⑧ 升级求助       │
+     │ ⑧ 亲自修复       │                   │                  │
+     │ ⑨ 最终验收       │                   │                  │
+     └─────────────────┘                   └─────────────────┘
+              │                                     │
+              └──────────────────┬──────────────────┘
+                                 │
+                          共享 Git 仓库
+```
+
+## 🔄 完整流水线
+
+```
+需求澄清 ──→ 架构设计 ──→ 任务分解 ──→ 编码实现 ──→ 自测验证
+  (GPT)       (GPT)        (GPT)      (Reasonix)   (Reasonix)
+                                                 │
+                    ┌────────────────────────────┘
+                    ▼
+              交付审查 (GPT)
+                    │
+            ┌───────┴───────┐
+            ▼               ▼
+         通过 ✅         不通过 ❌
+            │               │
+            ▼               ▼
+        最终验收         整改指令 (GPT)
+         (GPT)              │
+            │               ▼
+            ▼          整改修复 (Reasonix)
+          归档              │
+                    ┌───────┴───────┐
+                    ▼               ▼
+                通过 ✅         仍失败 ❌ (第2轮后)
+                    │               │
+                    ▼               ▼
+               重新提交审查     🚨 升级：GPT亲自修复
+                                   │
+                                   ▼
+                              最终验收 → 归档
+```
+
+## 📂 关键文件
+
+| 文件 | 作用 | 谁来读写 |
+|------|------|---------|
+| `AGENTS.md` | 项目身份证 + 流水线定义 | 两个 agent 都读 |
+| `COLLAB.md` | **唯一真相源**：当前状态、任务追踪、升级记录 | 两个 agent 都读写 |
+| `specs/active/tasks.md` | 任务分解 + 状态机 | GPT 创建，Reasonix 更新状态 |
+| `specs/active/overview.md` | 项目总览 | GPT 写，Reasonix 读 |
+| `specs/active/architecture.md` | 架构设计 | GPT 写，Reasonix 读 |
+| `specs/active/review/` | GPT 审查报告 | GPT 写 |
+| `specs/active/fix-orders/` | GPT 整改指令 | GPT 写，Reasonix 执行 |
+| `specs/active/escalation.md` | 升级记录 + GPT 修复日志 | 两人都写 |
+| `specs/active/acceptance.md` | 最终验收清单 | GPT 签署 |
+| `specs/GPT-QUICKREF.md` | GPT 操作手册 | GPT 启动时读 |
+| `specs/REASONIX-QUICKREF.md` | Reasonix 操作手册 | Reasonix 启动时读 |
+
+## 🚀 怎么开始
+
+### 第一步：GPT 规划
+
+把以下内容喂给 ChatGPT/Codex：
+1. `AGENTS.md` 的内容
+2. `specs/GPT-QUICKREF.md` 的内容
+3. 你的需求
+
+然后说：
+> 请按流水线执行模式一（规划模式），创建 specs/active/ 下的规范文档。
+
+### 第二步：Reasonix 编码
+
+切到 Reasonix（本项目），说：
+> 读 AGENTS.md → COLLAB.md → specs/active/tasks.md，开始编码。
+
+### 第三步：GPT 审查
+
+代码提交后切回 GPT，说：
+> COLLAB.md 显示有待审查任务，请执行模式二（审查模式）。
+
+### 第四步：循环
+
+按流水线图走，直到所有任务通过验收。
+
+---
+
+## 🔑 核心设计原则
 
 | 原则 | 说明 |
 |------|------|
-| **GPT 只在关键节点介入** | 写 spec、任务分解、代码审核时才用 GPT，日常编码全部交给 Reasonix |
-| **COLLAB.md 是唯一真相源** | 两个 agent 通过它了解"现在什么状态"，不依赖记忆 |
-| **先读后写** | 每个 agent 启动时第一件事：读 AGENTS.md → COLLAB.md → specs/ |
-| **任务粒度适中** | 每个 task 应该是 Reasonix 一次会话能完成的量（不要太大也不要太小） |
+| **GPT 只在关键节点介入** | 规划 → 审查 → 验收。日常编码不消耗 GPT token |
+| **失败不跳级** | 审查不通过必须修复，不允许绕过 |
+| **最多 2 轮整改** | 第 3 次自动升级，GPT 亲自下场 |
+| **无证据不签字** | 验收必须有可验证的测试结果/日志 |
+| **COLLAB.md 是唯一真相源** | 不依赖记忆，文件即状态 |
