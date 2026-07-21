@@ -13,3 +13,6 @@ Thumbs.db
 
 # Env
 .env
+
+# Reasonix internal
+.reasonix/
