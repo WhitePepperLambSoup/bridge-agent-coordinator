@@ -1403,6 +1403,7 @@ Agent 在开始工作前：
 ```markdown
 # Spec: [功能名称]
 Spec claimed by agent: <unclaimed>
+Complexity: 🟢LOW
 
 ## 目标
 ...
@@ -1447,6 +1448,7 @@ When done or abandoning, restore the claim line to `<unclaimed>`.
 ```markdown
 # Spec: [Feature Name]
 Spec claimed by agent: <unclaimed>
+Complexity: 🟢LOW
 
 ## Goal
 ...
