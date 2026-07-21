@@ -6,12 +6,14 @@ Bridge — AI Agent 协作桥接器
 两个 AI Agent 通过这些文件了解各自的角色、流水线和当前任务状态，
 从而实现高效协作。
 
-支持 5 种协作模式：
-  1. Architect-Engineer  — GPT 架构师 + Reasonix 工程师（9 道工序）
+支持 7 种协作模式：
+  1. Architect-Engineer  — Agent A 架构 + Agent B 执行（9 道工序）
   2. Peer-Review         — 两个平等 Agent 互相审查
   3. Spec-Driven         — 规范先行，严格门禁
   4. Quick-Start         — 最小化设置，立刻开始
-  5. Custom              — 用户自定义流水线
+  5. Parallel-Team       — 分离状态文件 + Git 仲裁并行
+  6. Loop-Engineering    — Goal→Execute→Verify→Settle 闭环
+  7. Parallel-Claim      — Spec claim 行无冲突并行
 
 可选：接入 OpenAI 兼容 API 辅助理解需求并自动填充内容。
 
@@ -1610,6 +1612,13 @@ Complexity: 🟢LOW
 
 def call_llm(api_key, api_base, model, system_prompt, user_prompt, timeout=30):
     """调用 OpenAI 兼容 API"""
+    # P1 安全修复: URL 校验
+    api_base = api_base.strip()
+    if not api_base.startswith("https://") and not api_base.startswith("http://localhost") and not api_base.startswith("http://127.0.0.1"):
+        raise ValueError("API Base URL 必须以 https:// 开头（本地地址 http://localhost 或 http://127.0.0.1 例外）。明文 HTTP 传输会暴露 API Key。")
+    if len(api_key.strip()) < 8:
+        raise ValueError("API Key 过短，可能无效。请检查。")
+
     url = f"{api_base.rstrip('/')}/chat/completions"
     headers = {
         "Content-Type": "application/json",
