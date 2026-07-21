@@ -233,6 +233,12 @@ _STR = {
         "cross_review": {"zh": "交叉审查",   "en": "Cross Review"},
         "merge_test":   {"zh": "合并测试",   "en": "Merge Test"},
         "joint_accept": {"zh": "联合验收",   "en": "Joint Accept"},
+        "goal":         {"zh": "定义目标",   "en": "Define Goal"},
+        "execute":      {"zh": "执行构建",   "en": "Execute Build"},
+        "verify":       {"zh": "独立验证",   "en": "Verify"},
+        "settle":       {"zh": "结算",       "en": "Settle"},
+        "init_specs":   {"zh": "初始化 Spec","en": "Init Specs"},
+        "claim":        {"zh": "认领 Spec",  "en": "Claim Specs"},
     },
 
     # 模板内容
@@ -857,6 +863,36 @@ TEMPLATES = {
         "agent_a": {"name": "GPT", "role": "架构师 / 审查员", "model": "GPT-4"},
         "agent_b": {"name": "Reasonix", "role": "主力工程师", "model": "DeepSeek"},
     },
+
+    "loop-engineering": {
+        "name": "Loop-Engineering",
+        "description": "借鉴 loop-engineering (8.9k⭐) + loop.js 设计。Goal→Execute→Verify→Settle。独立 Verify agent，预算守卫，分层门禁，适合长周期自主开发。",
+        "icon": "🔄",
+        "pipeline": [
+            {"id": "goal",       "name": "定义目标",   "agent": "Agent A", "desc": "明确 Goal：什么是「完成」"},
+            {"id": "plan",       "name": "制定计划",   "agent": "Agent A", "desc": "架构 + 任务分解"},
+            {"id": "execute",    "name": "执行构建",   "agent": "Agent B", "desc": "读 spec → 编码 → 自测 → 写 handoff"},
+            {"id": "verify",     "name": "独立验证",   "agent": "Agent A", "desc": "独立 Verify agent 判定是否通过（从不自己打分）"},
+            {"id": "settle",     "name": "结算",       "agent": "Agent A", "desc": "ok→交付 / not yet→返回 Execute / impossible→放弃"},
+        ],
+        "agent_a": {"name": "GPT", "role": "Goal 定义者 / Verify 裁判", "model": "GPT-4"},
+        "agent_b": {"name": "Reasonix", "role": "Execute 执行者", "model": "DeepSeek"},
+    },
+
+    "parallel-claim": {
+        "name": "Parallel-Claim",
+        "description": "借鉴 LoopGate 的 Claim 认领机制。多 Agent 通过 spec claim 行无冲突并行，不依赖 worktree。适合 2+ Agent 同时工作的场景。",
+        "icon": "🏷️",
+        "pipeline": [
+            {"id": "init_specs",  "name": "初始化 Spec",  "agent": "Agent A", "desc": "创建 specs/ 目录，每个 spec 含 claim 行"},
+            {"id": "claim",       "name": "认领 Spec",    "agent": "Both",    "desc": "Agent 读取 specs/，认领无主 spec 后 commit"},
+            {"id": "build",       "name": "并行构建",     "agent": "Both",    "desc": "各 Agent 在认领的 spec 范围内编码"},
+            {"id": "verify",      "name": "独立验证",     "agent": "Agent A", "desc": "Agent A 验证所有 spec 的完成情况"},
+            {"id": "settle",      "name": "结算交付",     "agent": "Agent A", "desc": "全部通过→交付 / 未通过→退回对应 Agent"},
+        ],
+        "agent_a": {"name": "GPT", "role": "Spec 管理者 / 验证者", "model": "GPT-4"},
+        "agent_b": {"name": "Agent B", "role": "Spec 执行者", "model": "Configurable"},
+    },
 }
 
 
@@ -1144,6 +1180,249 @@ def generate_parallel_struct(agent_a_name, agent_b_name):
 | 不写对方的文件 | 互斥写是防止冲突的基础 |
 | 冲突不慌 | git rebase 后手动解决，在 board.md 记录 |
 """
+
+
+# ═══════════════════════════════════════════════════════════════
+# Loop-Engineering & Parallel-Claim 专用函数
+# ═══════════════════════════════════════════════════════════════
+
+def generate_loop_budget_md(lang="zh"):
+    """生成 loop-budget.md — 守护循环不失控"""
+    zh = """# loop-budget.md — 循环预算追踪
+
+> 借鉴 loop.js 的 guards 设计。守卫是「逃脱舱口」，不是「完成」的定义。
+
+## 预算设置
+
+| 守卫 | 值 | 说明 |
+|------|-----|------|
+| max_rounds | 20 | 最多执行轮次 |
+| max_usd | $5.00 | 总 token 费用上限 |
+| max_time_per_round | 15 min | 单轮超时 |
+
+## 当前消耗
+
+| 轮次 | 日期 | tokens in | tokens out | 费用 | 累计 | 耗时 |
+|------|------|-----------|------------|------|------|------|
+| 1 | - | - | - | - | - | - |
+
+## 守卫触发记录
+
+_无_
+
+## 规则
+
+- 任一守卫触发 → 立即停止，记录原因
+- `not yet` 裁决不计入「失败」— 它是正常迭代
+- `impossible` 裁决 → 明确放弃，保留预算
+"""
+    en = """# loop-budget.md — Loop Budget Tracker
+
+> Guards are escape hatches, not definitions of "done". Inspired by loop.js.
+
+## Budget Settings
+
+| Guard | Value | Description |
+|-------|-------|-------------|
+| max_rounds | 20 | Maximum execution rounds |
+| max_usd | $5.00 | Total token cost cap |
+| max_time_per_round | 15 min | Per-round timeout |
+
+## Current Consumption
+
+| Round | Date | Tokens In | Tokens Out | Cost | Cumulative | Duration |
+|-------|------|-----------|------------|------|------------|----------|
+| 1 | - | - | - | - | - | - |
+
+## Guard Triggers
+
+_None_
+
+## Rules
+
+- Any guard fires → immediate stop, log reason
+- "not yet" verdict is NOT a failure — it's normal iteration
+- "impossible" verdict → explicit give-up, budget preserved
+"""
+    return zh if lang == "zh" else en
+
+
+def generate_verify_template(lang="zh"):
+    """生成 verify-template.md — 独立 Verify agent 的裁决模板"""
+    zh = """# Verify 裁决：Round N
+
+> ⚠️ **Verify agent 独立裁决。执行 agent 不得自己打分。**（loop.js 核心原则）
+
+## 裁决
+
+### ✅ ok — 通过
+> Goal 已达成，证据确凿，可以交付。
+
+### 🔄 not yet — 未通过
+> 还需要改进。以下是具体原因：
+
+**必须改进的项：**
+1. ...
+
+**建议改进的项：**
+1. ...
+
+**给下一轮 Execute 的提示：**
+> ...
+
+### ❌ impossible — 不可能
+> 此 Goal 在当前约束下无法达成。
+> 原因：...
+
+---
+
+## 验证依据
+
+- [ ] 测试全部通过？→ 证据：...
+- [ ] 功能满足 Goal？→ 证据：...
+- [ ] 无安全风险？→ 证据：...
+- [ ] 预算未超？→ 当前消耗：...
+
+## 裁决人
+
+- **Agent**：[Verify Agent Name]
+- **日期**：YYYY-MM-DD
+- **Round**：N
+"""
+    en = """# Verify Verdict: Round N
+
+> ⚠️ **Independent Verify agent verdict. The executing agent never grades itself.** (loop.js core principle)
+
+## Verdict
+
+### ✅ ok — Pass
+> Goal achieved with verifiable evidence. Ready to ship.
+
+### 🔄 not yet — Retry
+> Improvements needed. Specific reasons below:
+
+**Must fix:**
+1. ...
+
+**Should improve:**
+1. ...
+
+**Hint for next Execute round:**
+> ...
+
+### ❌ impossible — Give Up
+> Goal cannot be achieved under current constraints.
+> Reason: ...
+
+---
+
+## Evidence Base
+
+- [ ] All tests pass? → Evidence: ...
+- [ ] Goal satisfied? → Evidence: ...
+- [ ] No security risks? → Evidence: ...
+- [ ] Budget not exceeded? → Current: ...
+
+## Verdict By
+
+- **Agent**: [Verify Agent Name]
+- **Date**: YYYY-MM-DD
+- **Round**: N
+"""
+    return zh if lang == "zh" else en
+
+
+def generate_spec_claim_template(lang="zh"):
+    """生成 spec claim 模板 — 借鉴 LoopGate 的 claim 机制"""
+    zh = """# spec-claim-guide.md — Spec 认领机制
+
+> 借鉴 LoopGate 的 "Spec claimed by agent: <unclaimed>" 机制。
+> 多 Agent 并行时，通过 claim 行实现无冲突协作——不需要 worktree。
+
+## 工作原理
+
+每个 spec 文件顶部有一行：
+```
+Spec claimed by agent: <unclaimed>
+```
+
+Agent 在开始工作前：
+1. 读取 specs/ 目录
+2. 找到 `<unclaimed>` 的 spec
+3. 将 `<unclaimed>` 替换为自己的名字
+4. **立即 git commit**（这是关键——原子认领）
+5. 开始在该 spec 范围内工作
+
+完成或放弃时，将 claim 行恢复为 `<unclaimed>`。
+
+## 冲突处理
+
+- 如果 git pull 后发现自己的 claim 被覆盖 → 说明另一个 Agent 抢先认领了
+- 如果发现所有 spec 都被认领 → 等待，或帮助已认领的 Agent
+- **绝不修改别人的 claim 行**——这是互斥锁
+
+## Spec 模板
+
+```markdown
+# Spec: [功能名称]
+Spec claimed by agent: <unclaimed>
+
+## 目标
+...
+
+## 验收标准
+- [ ] ...
+- [ ] ...
+
+## 涉及文件
+- src/...
+```
+"""
+    en = """# spec-claim-guide.md — Spec Claim Mechanism
+
+> Inspired by LoopGate's "Spec claimed by agent: <unclaimed>" mechanism.
+> Multi-agent parallel collaboration without conflicts — no worktree needed.
+
+## How It Works
+
+Each spec file has a line at the top:
+```
+Spec claimed by agent: <unclaimed>
+```
+
+Before starting work, an agent:
+1. Reads the specs/ directory
+2. Finds a spec marked `<unclaimed>`
+3. Replaces `<unclaimed>` with their own name
+4. **Immediately git commit** (this is the key — atomic claim)
+5. Starts working within that spec's scope
+
+When done or abandoning, restore the claim line to `<unclaimed>`.
+
+## Conflict Handling
+
+- If `git pull` shows your claim was overwritten → another agent claimed it first
+- If all specs are claimed → wait, or help the claiming agent
+- **Never modify someone else's claim line** — it's a mutex
+
+## Spec Template
+
+```markdown
+# Spec: [Feature Name]
+Spec claimed by agent: <unclaimed>
+
+## Goal
+...
+
+## Acceptance Criteria
+- [ ] ...
+- [ ] ...
+
+## Affected Files
+- src/...
+```
+"""
+    return zh if lang == "zh" else en
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -1616,16 +1895,26 @@ class BridgeApp:
 ══════════════════════════════════════
 """
 
-        if mode == "parallel-team":
+        if mode in ("parallel-team", "loop-engineering", "parallel-claim"):
             preview += f"""
-📄 AGENTS.md: 项目元信息 + 6 道工序流水线
+📄 AGENTS.md: 项目元信息 + {len(TEMPLATES[mode]['pipeline'])} 道工序流水线
 📄 agent-{a_name.lower()}.md: {a_name} 独立状态（只有 {a_name} 写）
 📄 agent-{b_name.lower()}.md: {b_name} 独立状态（只有 {b_name} 写）
 📄 board.md: 共享任务看板（git 仲裁并发）
 📄 PARALLEL_GUIDE.md: 并行协作快速入门
 📄 GIT_WORKTREE.md: worktree 物理隔离指南
 📂 tasks/: 独立任务文件
-📂 specs/: 只读规范文档
+📂 specs/: 只读规范文档"""
+
+            if mode == "loop-engineering":
+                preview += """
+📄 loop-budget.md: 循环预算追踪（rounds/tokens/time 守卫）
+📄 verify-template.md: 独立 Verify agent 裁决模板"""
+            elif mode == "parallel-claim":
+                preview += """
+📄 spec-claim-guide.md: Spec 认领机制（无 worktree 并行）"""
+
+            preview += """
 
 -- 关键设计 --
 🔒 互斥写: 各自的状态文件互不冲突
@@ -1682,7 +1971,7 @@ class BridgeApp:
         try:
             all_files = {}
 
-            if mode == "parallel-team":
+            if mode in ("parallel-team", "loop-engineering", "parallel-claim"):
                 # ── 并行模式：独立文件结构 ──
                 all_files["AGENTS.md"] = generate_agents_md(mode, agent_a, agent_b, project_name, self.lang)
                 all_files["README.md"] = generate_readme_md(mode, agent_a, agent_b, project_name, self.lang)
@@ -1706,6 +1995,24 @@ class BridgeApp:
                 with open(os.path.join(tasks_dir, "T001-example.md"), "w", encoding="utf-8") as f:
                     f.write(f"# T001: 示例任务\n\n- **状态**：📌待认领\n- **OWNER**：无\n"
                            f"- **模块**：src/example\n\n## 目标\n[待填写]\n\n## 验收标准\n- [ ] 待填写\n")
+
+                # ── Loop-Engineering 额外文件 ──
+                if mode == "loop-engineering":
+                    all_files["loop-budget.md"] = generate_loop_budget_md(self.lang)
+                    all_files["verify-template.md"] = generate_verify_template(self.lang)
+                    with open(os.path.join(target, "loop-budget.md"), "w", encoding="utf-8") as f:
+                        f.write(all_files["loop-budget.md"])
+                    with open(os.path.join(target, "verify-template.md"), "w", encoding="utf-8") as f:
+                        f.write(all_files["verify-template.md"])
+
+                # ── Parallel-Claim 额外文件 ──
+                if mode == "parallel-claim":
+                    all_files["spec-claim-guide.md"] = generate_spec_claim_template(self.lang)
+                    with open(os.path.join(target, "spec-claim-guide.md"), "w", encoding="utf-8") as f:
+                        f.write(all_files["spec-claim-guide.md"])
+                    # 创建示例 spec 文件
+                    with open(os.path.join(specs_dir, "spec-example.md"), "w", encoding="utf-8") as f:
+                        f.write("# Spec: 示例功能\nSpec claimed by agent: <unclaimed>\n\n## 目标\n[待填写]\n\n## 验收标准\n- [ ] 待填写\n")
             else:
                 # ── 串行模式：原逻辑 ──
                 all_files["AGENTS.md"] = generate_agents_md(mode, agent_a, agent_b, project_name, self.lang)
