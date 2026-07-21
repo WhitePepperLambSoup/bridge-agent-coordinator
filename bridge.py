@@ -834,10 +834,10 @@ MODEL_REGISTRY = {
     "gemini-2.5-flash":       {"vendor": "Google", "tier": "mid",   "cost": "$",   "notes": "价格性能最佳比"},
     "gemini-2.5-flash-lite":  {"vendor": "Google", "tier": "low",   "cost": "$",   "notes": "最快最便宜"},
 
-    # ── DeepSeek (registry 交叉验证) ──
-    "deepseek-v3":     {"vendor": "DeepSeek", "tier": "high",  "cost": "$",   "notes": "MoE 旗舰, 极便宜"},
-    "deepseek-r1":     {"vendor": "DeepSeek", "tier": "high",  "cost": "$$",  "notes": "推理模型"},
-    "deepseek-r1-0528":{"vendor": "DeepSeek", "tier": "high",  "cost": "$$",  "notes": "R1 最新版"},
+    # ── DeepSeek (官方 API docs: api-docs.deepseek.com, 2026-07) ──
+    "deepseek-v4-flash": {"vendor": "DeepSeek", "tier": "high",  "cost": "$",   "notes": "V4 Flash ¥1/¥2 per MTok | 1M ctx | 384K output"},
+    "deepseek-v4-pro":   {"vendor": "DeepSeek", "tier": "high",  "cost": "$$",  "notes": "V4 Pro ¥3/¥6 per MTok | 1M ctx | 384K output"},
+    # ⚠️ deepseek-chat/deepseek-reasoner 将于 2026-07-24 废弃
 
     # ── Meta (OpenRouter 验证) ──
     "meta-muse-spark-1.1": {"vendor": "Meta",    "tier": "high",  "cost": "$$",  "notes": "Muse Spark 1.1 (取代 Llama 4) | 1M ctx | agentic"},
@@ -902,7 +902,7 @@ TEMPLATES = {
             {"id": "acceptance",   "name": "最终验收",   "agent": "Agent A", "desc": "6 维度验收清单，无证据不签字"},
         ],
         "agent_a": {"name": "GPT", "role": "架构师 / 审核员", "model": "gpt-5.6-sol"},
-        "agent_b": {"name": "Reasonix", "role": "工程师 / 执行者", "model": "deepseek-v3"},
+        "agent_b": {"name": "Reasonix", "role": "工程师 / 执行者", "model": "deepseek-v4-flash"},
     },
 
     "peer-review": {
@@ -935,7 +935,7 @@ TEMPLATES = {
             {"id": "signoff",      "name": "签字交付",   "agent": "Agent A", "desc": "最终验收签字"},
         ],
         "agent_a": {"name": "GPT", "role": "规范编写者 / 审查员", "model": "gpt-5.6-sol"},
-        "agent_b": {"name": "Reasonix", "role": "任务实现者", "model": "deepseek-v3"},
+        "agent_b": {"name": "Reasonix", "role": "任务实现者", "model": "deepseek-v4-flash"},
     },
 
     "quick-start": {
@@ -948,7 +948,7 @@ TEMPLATES = {
             {"id": "check", "name": "检查", "agent": "Agent A", "desc": "快速审查"},
         ],
         "agent_a": {"name": "GPT", "role": "规划者", "model": "gpt-5.6-sol"},
-        "agent_b": {"name": "Reasonix", "role": "执行者", "model": "deepseek-v3"},
+        "agent_b": {"name": "Reasonix", "role": "执行者", "model": "deepseek-v4-flash"},
     },
 
     "parallel-team": {
@@ -964,7 +964,7 @@ TEMPLATES = {
             {"id": "final_accept",  "name": "最终验收",   "agent": "Agent A", "desc": "全量验收签字"},
         ],
         "agent_a": {"name": "GPT", "role": "架构师 / 审查员", "model": "gpt-5.6-sol"},
-        "agent_b": {"name": "Reasonix", "role": "主力工程师", "model": "deepseek-v3"},
+        "agent_b": {"name": "Reasonix", "role": "主力工程师", "model": "deepseek-v4-flash"},
     },
 
     "loop-engineering": {
@@ -979,7 +979,7 @@ TEMPLATES = {
             {"id": "settle",     "name": "结算",       "agent": "Agent A", "desc": "ok→交付 / not yet→返回 Execute / impossible→放弃"},
         ],
         "agent_a": {"name": "GPT", "role": "Goal 定义者 / Verify 裁判", "model": "gpt-5.6-sol"},
-        "agent_b": {"name": "Reasonix", "role": "Execute 执行者", "model": "deepseek-v3"},
+        "agent_b": {"name": "Reasonix", "role": "Execute 执行者", "model": "deepseek-v4-flash"},
     },
 
     "parallel-claim": {
@@ -1628,7 +1628,7 @@ class BridgeApp:
         self.agent_a_model = tk.StringVar(value="gpt-5.6-sol")
         self.agent_b_name = tk.StringVar(value="Reasonix")
         self.agent_b_role = tk.StringVar(value="工程师 / 执行者")
-        self.agent_b_model = tk.StringVar(value="deepseek-v3")
+        self.agent_b_model = tk.StringVar(value="deepseek-v4-flash")
 
         # Agent C（可选）
         self.agent_c_enabled = tk.BooleanVar(value=False)
