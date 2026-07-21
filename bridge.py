@@ -380,12 +380,32 @@ _No reviews yet_
 
 - **总任务数**：0
 - **已完成**：0
-- **进行中**：0""",
+- **进行中**：0
+
+## 成本分级（agent-agnostic）
+
+| Tier | 标签 | 含义 | 适合的 Agent 类型 |
+|------|------|------|------------------|
+| 🟢 LOW | 低复杂度 | 模板代码、CRUD、配置修改、简单修复 | 低成本模型（DeepSeek / 本地模型） |
+| 🟡 MID | 中等复杂度 | 业务逻辑、重构、性能优化 | 中等模型 |
+| 🔴 HIGH | 高复杂度 | 架构设计、安全审计、算法设计、代码审查 | 高能力模型（GPT-4 / Claude） |
+
+> 此分级不绑定具体模型名称——由用户根据自己手头的模型自行映射。""",
             "en": """## Meta
 
 - **Total Tasks**: 0
 - **Completed**: 0
-- **In Progress**: 0"""
+- **In Progress**: 0
+
+## Cost Tier (agent-agnostic)
+
+| Tier | Label | Meaning | Suitable Agent Type |
+|------|-------|---------|---------------------|
+| 🟢 LOW | Low complexity | Boilerplate, CRUD, config changes, simple fixes | Low-cost model (DeepSeek / local) |
+| 🟡 MID | Medium complexity | Business logic, refactoring, optimization | Mid-tier model |
+| 🔴 HIGH | High complexity | Architecture, security audit, algorithm design, code review | High-capability model (GPT-4 / Claude) |
+
+> Tiers don't name specific models — you map them to whatever agents you have."""
         },
         "tasks_notes": {
             "zh": """_等待分解任务_
@@ -1025,49 +1045,66 @@ _暂无_
 """
 
 
-def generate_board_md(agent_a_name, agent_b_name):
+def generate_board_md(agent_a_name, agent_b_name, lang="zh"):
     """生成共享任务看板（并行模式核心）"""
-    return f"""# board.md — 共享任务看板
+    table = f"""| 任务ID | 任务名称 | 状态 | OWNER | 复杂度 | 涉及模块 | 验收标准 |
+|--------|---------|------|-------|--------|---------|---------|
+| - | 等待规划 | - | - | - | - | - |""" if lang == "zh" else f"""| Task ID | Name | Status | OWNER | Tier | Module | Acceptance |
+|--------|------|--------|-------|------|--------|------------|
+| - | Awaiting plan | - | - | - | - | - |"""
 
-> 🔴 **并发规则**：两个 agent 都可能修改此文件。
-> **修改前**：`git pull` → **修改后立即**：`git add board.md && git commit -m "[board] 更新任务状态"`
-> **冲突时**：后 commit 的人 `git pull --rebase`，手动解决冲突。
+    rules = f"""## {'成本路由规则' if lang == 'zh' else 'Cost Routing Rules'}
+
+| {'复杂度' if lang == 'zh' else 'Tier'} | {'应由谁做' if lang == 'zh' else 'Assigned To'} | {'原因' if lang == 'zh' else 'Rationale'} |
+|--------|---------|------|
+| 🟢 LOW | {agent_b_name}（{'低成本 Agent' if lang == 'zh' else 'Low-cost Agent'}） | {'简单代码不消耗贵模型 token' if lang == 'zh' else 'Simple code, saves expensive model tokens'} |
+| 🟡 MID | {agent_b_name} {'或' if lang == 'zh' else 'or'} {agent_a_name} | {'视任务紧要程度' if lang == 'zh' else 'Depends on urgency'} |
+| 🔴 HIGH | {agent_a_name}（{'高能力 Agent' if lang == 'zh' else 'High-capability Agent'}） | {'需要深度推理，便宜模型可能做不对' if lang == 'zh' else 'Needs deep reasoning; cheap models may fail'} |
+
+> {'此路由规则不绑定模型名称。根据你实际使用的模型调整。' if lang == 'zh' else 'These rules are model-agnostic. Adjust based on your actual agents.'}
+
+## {'并行规则速查' if lang == 'zh' else 'Parallel Rules Quick Reference'}
+
+| {'规则' if lang == 'zh' else 'Rule'} | {'说明' if lang == 'zh' else 'Description'} |
+|------|------|
+| 🔒 {'互斥写' if lang == 'zh' else 'Mutex Write'} | `agent-{agent_a_name.lower()}.md` {'只有' if lang == 'zh' else 'only'} {agent_a_name} {'写' if lang == 'zh' else 'writes'}{'；' if lang == 'zh' else '; '}`agent-{agent_b_name.lower()}.md` {'只有' if lang == 'zh' else 'only'} {agent_b_name} {'写' if lang == 'zh' else 'writes'} |
+| 📋 {'共享写' if lang == 'zh' else 'Shared Write'} | `board.md` {'和' if lang == 'zh' else 'and'} `tasks/*.md` {'都可以写，通过 git 控制并发' if lang == 'zh' else 'shared; git-arbitrated concurrency'} |
+| 📖 {'只读' if lang == 'zh' else 'Read-Only'} | `AGENTS.md`、`specs/*.md` {'只读（规划阶段写完后不再改）' if lang == 'zh' else 'read-only after planning phase'} |
+| 🔄 {'同步节奏' if lang == 'zh' else 'Sync Rhythm'} | {'每个 agent 完成一个原子操作后立即 git commit + git push；开始新操作前 git pull' if lang == 'zh' else 'commit+push after each atomic change; pull before starting'} |
+| 💰 {'成本优化' if lang == 'zh' else 'Cost Optimization'} | {agent_a_name} {'只做' if lang == 'zh' else 'only handles'} 🔴HIGH {'规划/审查/验收' if lang == 'zh' else 'planning/review/acceptance'}{'；' if lang == 'zh' else '; '}{agent_b_name} {'包揽' if lang == 'zh' else 'covers'} 🟢LOW + 🟡MID {'编码实现' if lang == 'zh' else 'implementation'} |"""
+
+    return f"""# board.md — {'共享任务看板' if lang == 'zh' else 'Shared Task Board'}
+
+> {'🔴 **并发规则**：两个 agent 都可能修改此文件。' if lang == 'zh' else '🔴 **Concurrency Rule**: Both agents may edit this file.'}
+> {'**修改前**：`git pull` → **修改后立即**：`git add board.md && git commit -m "[board] 更新任务状态"' if lang == 'zh' else '**Before editing**: `git pull` → **After editing immediately**: `git add board.md && git commit -m "[board] update task status"'}
+> {'**冲突时**：后 commit 的人 `git pull --rebase`，手动解决冲突。' if lang == 'zh' else '**On conflict**: the later committer does `git pull --rebase` and resolves manually.'}
 
 ---
 
-## 任务池
+## {'任务池' if lang == 'zh' else 'Task Pool'}
 
 <!--
-认领规则：
-1. 找到状态为 📌待认领 的任务
-2. 把 OWNER 改为你的名字，状态改为 🔄进行中
-3. 立即 git commit，避免冲突
-4. 如果两个 agent 同时认领同一个任务 → git rebase 时后者会看到冲突 → 放弃认领，选另一个任务
+{'认领规则：' if lang == 'zh' else 'Claim rules:'}
+1. {'找到状态为 📌待认领 且复杂度匹配你能力的任务' if lang == 'zh' else 'Find tasks with 📌unclaimed status and a tier matching your capability'}
+2. {'把 OWNER 改为你的名字，状态改为 🔄进行中' if lang == 'zh' else 'Change OWNER to your name, status to 🔄in progress'}
+3. {'立即 git commit，避免冲突' if lang == 'zh' else 'Immediately git commit to avoid conflicts'}
+4. {'如果两个 agent 同时认领同一个任务 → git rebase 时后者会看到冲突 → 放弃认领，选另一个任务' if lang == 'zh' else 'If two agents claim the same task → the later one sees a conflict on rebase → abandon and pick another'}
 -->
 
-| 任务ID | 任务名称 | 状态 | OWNER | 涉及模块 | 验收标准 |
-|--------|---------|------|-------|---------|---------|
-| - | 等待规划 | - | - | - | - |
+{table}
 
-## 合并清单
+## {'合并清单' if lang == 'zh' else 'Merge Checklist'}
 
-<!-- 任务完成后，OWNER 在此打勾。全部打勾后进入合并审查阶段。 -->
-- [ ] 无
+<!-- {'任务完成后，OWNER 在此打勾。全部打勾后进入合并审查阶段。' if lang == 'zh' else 'OWNER checks off when done. All checked → merge review phase.'} -->
+- [ ] {'无' if lang == 'zh' else 'None'}
 
-## 合并冲突日志
+## {'合并冲突日志' if lang == 'zh' else 'Merge Conflict Log'}
 
-<!-- 记录每次合并冲突及解决方案 -->
-| 日期 | 冲突文件 | 涉及人 | 解决方式 |
+<!-- {'记录每次合并冲突及解决方案' if lang == 'zh' else 'Record each merge conflict and its resolution'} -->
+| {'日期' if lang == 'zh' else 'Date'} | {'冲突文件' if lang == 'zh' else 'Conflict File'} | {'涉及人' if lang == 'zh' else 'Involved'} | {'解决方式' if lang == 'zh' else 'Resolution'} |
 |------|---------|--------|---------|
 
-## 并行规则速查
-
-| 规则 | 说明 |
-|------|------|
-| 🔒 互斥写 | `agent-{agent_a_name.lower()}.md` 只有 {agent_a_name} 写；`agent-{agent_b_name.lower()}.md` 只有 {agent_b_name} 写 |
-| 📋 共享写 | `board.md` 和 `tasks/*.md` 都可以写，通过 git 控制并发 |
-| 📖 只读 | `AGENTS.md`、`specs/*.md` 只读（规划阶段写完后不再改） |
-| 🔄 同步节奏 | 每个 agent 完成一个原子操作后立即 git commit + git push；开始新操作前 git pull |
+{rules}
 """
 
 
@@ -1979,7 +2016,7 @@ class BridgeApp:
                     a_name, agent_a['role'], b_name)
                 all_files[f"agent-{b_name.lower()}.md"] = generate_agent_status_md(
                     b_name, agent_b['role'], a_name)
-                all_files["board.md"] = generate_board_md(a_name, b_name)
+                all_files["board.md"] = generate_board_md(a_name, b_name, self.lang)
                 all_files["GIT_WORKTREE.md"] = generate_git_worktree_guide()
                 all_files["PARALLEL_GUIDE.md"] = generate_parallel_struct(a_name, b_name)
 
