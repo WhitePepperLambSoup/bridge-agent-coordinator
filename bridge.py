@@ -388,7 +388,7 @@ _No reviews yet_
 |------|------|------|------------------|
 | 🟢 LOW | 低复杂度 | 模板代码、CRUD、配置修改、简单修复 | 低成本模型（deepseek-v3 / 本地模型） |
 | 🟡 MID | 中等复杂度 | 业务逻辑、重构、性能优化 | 中等模型 |
-| 🔴 HIGH | 高复杂度 | 架构设计、安全审计、算法设计、代码审查 | 高能力模型（gpt-4.1 / claude-sonnet-4-5） |
+| 🔴 HIGH | 高复杂度 | 架构设计、安全审计、算法设计、代码审查 | 高能力模型（gpt-5.6-sol / claude-opus-4-8） |
 
 > 此分级不绑定具体模型名称——由用户根据自己手头的模型自行映射。""",
             "en": """## Meta
@@ -403,7 +403,7 @@ _No reviews yet_
 |------|-------|---------|---------------------|
 | 🟢 LOW | Low complexity | Boilerplate, CRUD, config changes, simple fixes | Low-cost model (DeepSeek / local) |
 | 🟡 MID | Medium complexity | Business logic, refactoring, optimization | Mid-tier model |
-| 🔴 HIGH | High complexity | Architecture, security audit, algorithm design, code review | High-capability model (gpt-4.1 / claude-sonnet-4-5) |
+| 🔴 HIGH | High complexity | Architecture, security audit, algorithm design, code review | High-capability model (gpt-5.6-sol / claude-opus-4-8) |
 
 > Tiers don't name specific models — you map them to whatever agents you have."""
         },
@@ -803,35 +803,35 @@ Read `AGENTS.md` → `COLLAB.md` → `specs/active/tasks.md` → start coding
 # ═══════════════════════════════════════════════════════════════
 
 MODEL_REGISTRY = {
-    # ── OpenAI ──
-    "gpt-4.1":         {"vendor": "OpenAI", "tier": "high",  "cost": "$$$", "notes": "最新旗舰"},
-    "gpt-4.1-mini":    {"vendor": "OpenAI", "tier": "mid",   "cost": "$$",  "notes": "性价比高"},
-    "gpt-4.1-nano":    {"vendor": "OpenAI", "tier": "low",   "cost": "$",   "notes": "最快最便宜"},
-    "gpt-4o":          {"vendor": "OpenAI", "tier": "high",  "cost": "$$$", "notes": "多模态旗舰"},
-    "gpt-4o-mini":     {"vendor": "OpenAI", "tier": "mid",   "cost": "$$",  "notes": "轻量多模态"},
-    "o4-mini":         {"vendor": "OpenAI", "tier": "high",  "cost": "$$",  "notes": "推理模型"},
-    "o3":              {"vendor": "OpenAI", "tier": "high",  "cost": "$$$", "notes": "最强推理"},
-    # ── Anthropic ──
-    "claude-opus-4-5": {"vendor": "Anthropic", "tier": "high",  "cost": "$$$", "notes": "最强 Claude"},
-    "claude-sonnet-4-5":{"vendor": "Anthropic", "tier": "high", "cost": "$$",  "notes": "性价比旗舰"},
-    "claude-haiku-4-5":{"vendor": "Anthropic", "tier": "low",  "cost": "$",   "notes": "最快 Claude"},
-    "claude-opus-4":   {"vendor": "Anthropic", "tier": "high",  "cost": "$$$", "notes": "上一代旗舰"},
-    # ── Google ──
-    "gemini-2.5-pro":  {"vendor": "Google", "tier": "high",  "cost": "$$$", "notes": "Gemini 旗舰"},
-    "gemini-2.5-flash":{"vendor": "Google", "tier": "mid",   "cost": "$",   "notes": "高速 Gemini"},
-    "gemini-2.5-flash-lite":{"vendor": "Google", "tier": "low","cost": "$",  "notes": "最便宜 Gemini"},
+    # ── OpenAI (July 2026) ──
+    "gpt-5.6-sol":      {"vendor": "OpenAI", "tier": "high",  "cost": "$$$", "notes": "旗舰，复杂推理+编码 $5/$30"},
+    "gpt-5.6-terra":    {"vendor": "OpenAI", "tier": "high",  "cost": "$$",  "notes": "平衡智能与成本 $2.50/$15"},
+    "gpt-5.6-luna":     {"vendor": "OpenAI", "tier": "mid",   "cost": "$",   "notes": "高性价比 $1/$6"},
+    "o3":               {"vendor": "OpenAI", "tier": "high",  "cost": "$$$", "notes": "推理模型（legacy）"},
+    "o4-mini":          {"vendor": "OpenAI", "tier": "high",  "cost": "$$",  "notes": "轻量推理"},
+    # ── Anthropic (July 2026) ──
+    "claude-fable-5":   {"vendor": "Anthropic", "tier": "high",  "cost": "$$$", "notes": "最强 Claude $10/$50"},
+    "claude-opus-4-8":  {"vendor": "Anthropic", "tier": "high",  "cost": "$$",  "notes": "复杂编码+企业 $5/$25"},
+    "claude-sonnet-5":  {"vendor": "Anthropic", "tier": "high",  "cost": "$$",  "notes": "速度+智能最佳比 $3/$15"},
+    "claude-haiku-4-5": {"vendor": "Anthropic", "tier": "low",   "cost": "$",   "notes": "最快 $1/$5"},
+    # ── Google (July 2026) ──
+    "gemini-3.5-flash":       {"vendor": "Google", "tier": "high",  "cost": "$$",  "notes": "Gemini 最强 agentic/编码"},
+    "gemini-3.1-pro":         {"vendor": "Google", "tier": "high",  "cost": "$$",  "notes": "高级推理（preview）"},
+    "gemini-3.1-flash-lite":  {"vendor": "Google", "tier": "low",   "cost": "$",   "notes": "最强性价比"},
+    "gemini-2.5-pro":         {"vendor": "Google", "tier": "high",  "cost": "$$$", "notes": "深度推理"},
+    "gemini-2.5-flash":       {"vendor": "Google", "tier": "mid",   "cost": "$",   "notes": "价格性能最佳比"},
+    "gemini-2.5-flash-lite":  {"vendor": "Google", "tier": "low",   "cost": "$",   "notes": "最快最便宜"},
     # ── DeepSeek ──
     "deepseek-v3":     {"vendor": "DeepSeek", "tier": "high",  "cost": "$",   "notes": "MoE 旗舰，极便宜"},
     "deepseek-r1":     {"vendor": "DeepSeek", "tier": "high",  "cost": "$$",  "notes": "推理模型"},
-    "deepseek-v3-0324":{"vendor": "DeepSeek", "tier": "high",  "cost": "$",   "notes": "最新 V3 版本"},
     # ── 国产模型 ──
     "qwen3-max":       {"vendor": "Alibaba", "tier": "high",  "cost": "$$",  "notes": "通义千问旗舰"},
     "qwen3-plus":      {"vendor": "Alibaba", "tier": "mid",   "cost": "$",   "notes": "千问中等"},
     "qwen3-turbo":     {"vendor": "Alibaba", "tier": "low",   "cost": "$",   "notes": "千问快速"},
     "doubao-1.5-pro":  {"vendor": "ByteDance","tier": "high", "cost": "$",   "notes": "豆包旗舰"},
     "glm-4.5":         {"vendor": "Zhipu",   "tier": "high",  "cost": "$$",  "notes": "智谱旗舰"},
-    "moonshot-v1":     {"vendor": "Moonshot", "tier": "mid",   "cost": "$",   "notes": "Kimi 底层模型"},
-    "yi-large":        {"vendor": "01.AI",    "tier": "high",  "cost": "$$",  "notes": "零一万物"},
+    "kimi-k2":         {"vendor": "Moonshot", "tier": "high",  "cost": "$",   "notes": "Kimi 最新"},
+    "yi-lightning":    {"vendor": "01.AI",    "tier": "mid",   "cost": "$",   "notes": "零一万物"},
     # ── 开源/本地 ──
     "llama-4-maverick":{"vendor": "Meta",    "tier": "high",  "cost": "$",   "notes": "开源旗舰"},
     "llama-4-scout":   {"vendor": "Meta",    "tier": "mid",   "cost": "$",   "notes": "开源轻量"},
@@ -865,7 +865,7 @@ TEMPLATES = {
             {"id": "escalation",   "name": "升级修复",   "agent": "Agent A", "desc": "2 轮修复失败后 Agent A 亲自下场"},
             {"id": "acceptance",   "name": "最终验收",   "agent": "Agent A", "desc": "6 维度验收清单，无证据不签字"},
         ],
-        "agent_a": {"name": "GPT", "role": "架构师 / 审核员", "model": "gpt-4.1"},
+        "agent_a": {"name": "GPT", "role": "架构师 / 审核员", "model": "gpt-5.6-sol"},
         "agent_b": {"name": "Reasonix", "role": "工程师 / 执行者", "model": "deepseek-v3"},
     },
 
@@ -880,7 +880,7 @@ TEMPLATES = {
             {"id": "merge_test",    "name": "合并测试",   "agent": "Both",    "desc": "合并代码，运行集成测试"},
             {"id": "joint_accept",  "name": "联合验收",   "agent": "Both",    "desc": "共同确认交付质量"},
         ],
-        "agent_a": {"name": "GPT", "role": "模块 A 负责人", "model": "gpt-4.1"},
+        "agent_a": {"name": "GPT", "role": "模块 A 负责人", "model": "gpt-5.6-sol"},
         "agent_b": {"name": "Claude", "role": "模块 B 负责人", "model": "claude-sonnet-4-5"},
     },
 
@@ -898,7 +898,7 @@ TEMPLATES = {
             {"id": "integration",  "name": "集成验证",   "agent": "Agent A", "desc": "跨任务集成检查"},
             {"id": "signoff",      "name": "签字交付",   "agent": "Agent A", "desc": "最终验收签字"},
         ],
-        "agent_a": {"name": "GPT", "role": "规范编写者 / 审查员", "model": "gpt-4.1"},
+        "agent_a": {"name": "GPT", "role": "规范编写者 / 审查员", "model": "gpt-5.6-sol"},
         "agent_b": {"name": "Reasonix", "role": "任务实现者", "model": "deepseek-v3"},
     },
 
@@ -911,7 +911,7 @@ TEMPLATES = {
             {"id": "build", "name": "构建", "agent": "Agent B", "desc": "编码实现"},
             {"id": "check", "name": "检查", "agent": "Agent A", "desc": "快速审查"},
         ],
-        "agent_a": {"name": "GPT", "role": "规划者", "model": "gpt-4.1"},
+        "agent_a": {"name": "GPT", "role": "规划者", "model": "gpt-5.6-sol"},
         "agent_b": {"name": "Reasonix", "role": "执行者", "model": "deepseek-v3"},
     },
 
@@ -927,7 +927,7 @@ TEMPLATES = {
             {"id": "fix_merge",     "name": "合并修复",   "agent": "Both",    "desc": "解决合并冲突和审查意见"},
             {"id": "final_accept",  "name": "最终验收",   "agent": "Agent A", "desc": "全量验收签字"},
         ],
-        "agent_a": {"name": "GPT", "role": "架构师 / 审查员", "model": "gpt-4.1"},
+        "agent_a": {"name": "GPT", "role": "架构师 / 审查员", "model": "gpt-5.6-sol"},
         "agent_b": {"name": "Reasonix", "role": "主力工程师", "model": "deepseek-v3"},
     },
 
@@ -942,7 +942,7 @@ TEMPLATES = {
             {"id": "verify",     "name": "独立验证",   "agent": "Agent A", "desc": "独立 Verify agent 判定是否通过（从不自己打分）"},
             {"id": "settle",     "name": "结算",       "agent": "Agent A", "desc": "ok→交付 / not yet→返回 Execute / impossible→放弃"},
         ],
-        "agent_a": {"name": "GPT", "role": "Goal 定义者 / Verify 裁判", "model": "gpt-4.1"},
+        "agent_a": {"name": "GPT", "role": "Goal 定义者 / Verify 裁判", "model": "gpt-5.6-sol"},
         "agent_b": {"name": "Reasonix", "role": "Execute 执行者", "model": "deepseek-v3"},
     },
 
@@ -957,7 +957,7 @@ TEMPLATES = {
             {"id": "verify",      "name": "独立验证",     "agent": "Agent A", "desc": "Agent A 验证所有 spec 的完成情况"},
             {"id": "settle",      "name": "结算交付",     "agent": "Agent A", "desc": "全部通过→交付 / 未通过→退回对应 Agent"},
         ],
-        "agent_a": {"name": "GPT", "role": "Spec 管理者 / 验证者", "model": "gpt-4.1"},
+        "agent_a": {"name": "GPT", "role": "Spec 管理者 / 验证者", "model": "gpt-5.6-sol"},
         "agent_b": {"name": "Agent B", "role": "Spec 执行者", "model": "Configurable"},
     },
 }
@@ -1589,7 +1589,7 @@ class BridgeApp:
         self.project_name = tk.StringVar(value="")
         self.agent_a_name = tk.StringVar(value="GPT")
         self.agent_a_role = tk.StringVar(value=T("mode.architect-engineer.agent_a.role", self.lang) if False else "架构师 / 审核员")
-        self.agent_a_model = tk.StringVar(value="gpt-4.1")
+        self.agent_a_model = tk.StringVar(value="gpt-5.6-sol")
         self.agent_b_name = tk.StringVar(value="Reasonix")
         self.agent_b_role = tk.StringVar(value="工程师 / 执行者")
         self.agent_b_model = tk.StringVar(value="deepseek-v3")
@@ -1604,7 +1604,7 @@ class BridgeApp:
         self.llm_enabled = tk.BooleanVar(value=False)
         self.llm_api_key = tk.StringVar(value="")
         self.llm_api_base = tk.StringVar(value="https://api.openai.com/v1")
-        self.llm_model = tk.StringVar(value="gpt-4.1-mini")
+        self.llm_model = tk.StringVar(value="gpt-5.6-luna")
         self.llm_user_input = tk.StringVar(value="")
 
         # 自定义流水线
