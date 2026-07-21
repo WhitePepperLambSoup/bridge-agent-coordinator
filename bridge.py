@@ -99,6 +99,22 @@ TEMPLATES = {
         "agent_a": {"name": "GPT", "role": "规划者", "model": "GPT-4"},
         "agent_b": {"name": "Reasonix", "role": "执行者", "model": "DeepSeek"},
     },
+
+    "parallel-team": {
+        "name": "Parallel-Team",
+        "description": "两个 Agent 同时并行工作。通过分离状态文件 + git 仲裁解决并发冲突。适合各有独立模块可并行推进的项目。",
+        "icon": "⚡⚡",
+        "pipeline": [
+            {"id": "plan_together", "name": "联合规划",   "agent": "Both",    "desc": "共同制定架构和任务分解"},
+            {"id": "claim_tasks",   "name": "认领任务",   "agent": "Both",    "desc": "各自认领 board.md 上的无主任务"},
+            {"id": "parallel_work", "name": "并行开发",   "agent": "Both",    "desc": "各干各的，通过 git 同步进度"},
+            {"id": "merge_review",  "name": "合并审查",   "agent": "Agent A", "desc": "Agent A 审查合并后的代码"},
+            {"id": "fix_merge",     "name": "合并修复",   "agent": "Both",    "desc": "解决合并冲突和审查意见"},
+            {"id": "final_accept",  "name": "最终验收",   "agent": "Agent A", "desc": "全量验收签字"},
+        ],
+        "agent_a": {"name": "GPT", "role": "架构师 / 审查员", "model": "GPT-4"},
+        "agent_b": {"name": "Reasonix", "role": "主力工程师", "model": "DeepSeek"},
+    },
 }
 
 
@@ -441,6 +457,205 @@ def generate_readme_md(mode, agent_a, agent_b, project_name):
 
 
 # ═══════════════════════════════════════════════════════════════
+# 并行模式（Parallel-Team）专用生成函数
+# ═══════════════════════════════════════════════════════════════
+
+def generate_agent_status_md(agent_name, agent_role, counterpart_name):
+    """生成单个 agent 的独立状态文件（并行模式核心文件）"""
+    return f"""# agent-{agent_name.lower()}.md — {agent_name} 状态文件
+
+> ⚠️ **只有 {agent_name} 写入此文件，{counterpart_name} 只读**。这是并行模式解决并发冲突的关键设计。
+> 修改后立即 git commit，每次启动前 git pull。
+
+---
+
+## 当前状态
+
+🔄 **工作中** — [当前阶段]
+
+## 我认领的任务
+
+| 任务ID | 任务名称 | 状态 | 最新 commit | 备注 |
+|--------|---------|------|------------|------|
+| - | 等待认领 | - | - | - |
+
+## 我完成的里程碑
+
+- [ ] 无
+
+## 我需要 {counterpart_name} 做的事
+
+<!-- 写在这里，对方下次 git pull 后就能看到 -->
+_暂无_
+
+## 我遇到的阻塞
+
+_暂无_
+
+## Handoff
+
+> **{agent_name} → {counterpart_name}**：等待联合规划阶段完成。
+"""
+
+
+def generate_board_md(agent_a_name, agent_b_name):
+    """生成共享任务看板（并行模式核心）"""
+    return f"""# board.md — 共享任务看板
+
+> 🔴 **并发规则**：两个 agent 都可能修改此文件。
+> **修改前**：`git pull` → **修改后立即**：`git add board.md && git commit -m "[board] 更新任务状态"`
+> **冲突时**：后 commit 的人 `git pull --rebase`，手动解决冲突。
+
+---
+
+## 任务池
+
+<!--
+认领规则：
+1. 找到状态为 📌待认领 的任务
+2. 把 OWNER 改为你的名字，状态改为 🔄进行中
+3. 立即 git commit，避免冲突
+4. 如果两个 agent 同时认领同一个任务 → git rebase 时后者会看到冲突 → 放弃认领，选另一个任务
+-->
+
+| 任务ID | 任务名称 | 状态 | OWNER | 涉及模块 | 验收标准 |
+|--------|---------|------|-------|---------|---------|
+| - | 等待规划 | - | - | - | - |
+
+## 合并清单
+
+<!-- 任务完成后，OWNER 在此打勾。全部打勾后进入合并审查阶段。 -->
+- [ ] 无
+
+## 合并冲突日志
+
+<!-- 记录每次合并冲突及解决方案 -->
+| 日期 | 冲突文件 | 涉及人 | 解决方式 |
+|------|---------|--------|---------|
+
+## 并行规则速查
+
+| 规则 | 说明 |
+|------|------|
+| 🔒 互斥写 | `agent-{agent_a_name.lower()}.md` 只有 {agent_a_name} 写；`agent-{agent_b_name.lower()}.md` 只有 {agent_b_name} 写 |
+| 📋 共享写 | `board.md` 和 `tasks/*.md` 都可以写，通过 git 控制并发 |
+| 📖 只读 | `AGENTS.md`、`specs/*.md` 只读（规划阶段写完后不再改） |
+| 🔄 同步节奏 | 每个 agent 完成一个原子操作后立即 git commit + git push；开始新操作前 git pull |
+"""
+
+
+def generate_git_worktree_guide():
+    """生成 git worktree 隔离指南"""
+    return """# GIT_WORKTREE.md — 可选：使用 Git Worktree 实现物理隔离
+
+> 如果你遇到频繁的 git 冲突，可以使用 git worktree 让两个 agent 在
+> 物理隔离的工作区中并行开发，彻底避免文件层面的并发问题。
+
+## 原理
+
+```
+主仓库 (main branch)
+    │
+    ├── worktree-gpt/       ← GPT 的工作区（独立文件夹）
+    │   └── 在 feature/gpt 分支上工作
+    │
+    └── worktree-reasonix/  ← Reasonix 的工作区（独立文件夹）
+        └── 在 feature/reasonix 分支上工作
+```
+
+两个 agent 在不同文件夹里各自 git commit，互不干扰。
+合并时由人类或 Agent A 在 main 分支上 git merge。
+
+## 实际操作
+
+```bash
+# 1. 创建 worktree（只需做一次）
+cd /path/to/project
+git worktree add ../worktree-gpt feature/gpt
+git worktree add ../worktree-reasonix feature/reasonix
+
+# 2. GPT 在 worktree-gpt/ 下工作
+cd ../worktree-gpt
+# ... 编码、commit、push ...
+
+# 3. Reasonix 在 worktree-reasonix/ 下工作  
+cd ../worktree-reasonix
+# ... 编码、commit、push ...
+
+# 4. 合并（由人类操作）
+cd /path/to/project   # 回到主仓库
+git merge feature/gpt
+git merge feature/reasonix
+# 解决冲突（如有）
+git push
+
+# 5. 清理
+git worktree remove ../worktree-gpt
+git worktree remove ../worktree-reasonix
+git branch -d feature/gpt feature/reasonix
+```
+
+## 何时用 worktree？
+
+| 场景 | 推荐方案 |
+|------|---------|
+| 任务不重叠（各自改不同文件） | 基础方案：分离状态文件 + git 即可 |
+| 可能改同一文件 | 用 worktree 隔离 |
+| 频繁冲突 | 必须用 worktree |
+| 小项目/快速原型 | 串行模式（Architect-Engineer）更简单 |
+"""
+
+
+def generate_parallel_struct(agent_a_name, agent_b_name):
+    """生成并行模式的项目结构说明"""
+    return f"""# 并行协作快速入门
+
+## 文件分工
+
+```
+项目根目录/
+├── AGENTS.md                  ← [只读] 项目元信息
+├── agent-{agent_a_name.lower()}.md        ← [{agent_a_name} 专写] {agent_a_name}的状态
+├── agent-{agent_b_name.lower()}.md     ← [{agent_b_name} 专写] {agent_b_name}的状态
+├── board.md                   ← [共享写] 任务看板（git 仲裁）
+├── tasks/
+│   ├── T001-xxx.md           ← [共享写] 任务定义
+│   └── T002-yyy.md
+├── specs/
+│   ├── overview.md           ← [只读] 项目总览
+│   └── architecture.md       ← [只读] 架构设计
+├── GIT_WORKTREE.md            ← [参考] worktree 隔离指南
+└── src/                       ← [共享写] 实际代码
+```
+
+## {agent_a_name} 启动流程
+
+1. `git pull`
+2. 读 `AGENTS.md` → `agent-{agent_a_name.lower()}.md` → `board.md`
+3. 认领任务 → 更新 board.md → `git commit` → `git push`
+4. 写代码 → 更新自己的 agent-{agent_a_name.lower()}.md → commit → push
+5. 需要 {agent_b_name} 做的事写在 agent-{agent_a_name.lower()}.md 的「我需要对方做的事」区
+
+## {agent_b_name} 启动流程
+
+1. `git pull`
+2. 读 `AGENTS.md` → `agent-{agent_b_name.lower()}.md` → `board.md`
+3. 查看 agent-{agent_a_name.lower()}.md 的「我需要对方做的事」区
+4. 认领任务 → 更新 board.md → commit → push
+5. 写代码 → 更新自己的状态文件 → commit → push
+
+## 关键原则
+
+| 原则 | 说明 |
+|------|------|
+| 写完就 commit | 不要攒一堆改动再提交 |
+| 开始前先 pull | 看到最新状态再动手 |
+| 不写对方的文件 | 互斥写是防止冲突的基础 |
+| 冲突不慌 | git rebase 后手动解决，在 board.md 记录 |
+"""
+
+
+# ═══════════════════════════════════════════════════════════════
 # LLM 辅助模块
 # ═══════════════════════════════════════════════════════════════
 
@@ -575,7 +790,8 @@ class BridgeApp:
         self.mode_frames = {}
         row = 0
         for mode_key, tmpl in TEMPLATES.items():
-            fm = ttk.LabelFrame(mode_frame, text=f"{tmpl['icon']} {tmpl['name']}")
+            concurrency = "⚡并行" if mode_key == "parallel-team" else "🔗串行"
+            fm = ttk.LabelFrame(mode_frame, text=f"{tmpl['icon']} {tmpl['name']} ({concurrency})")
             fm.grid(row=row, column=0, sticky="ew", pady=3, padx=(0, 10))
             mode_frame.columnconfigure(0, weight=1)
 
@@ -867,6 +1083,7 @@ class BridgeApp:
     def _preview(self):
         mode = self.mode.get()
         agent_a, agent_b = self._get_agent_configs()
+        a_name, b_name = agent_a['name'], agent_b['name']
         project_name = self.project_name.get() or "未命名项目"
 
         if mode == "custom":
@@ -877,11 +1094,31 @@ class BridgeApp:
         preview = f"""══════════════════════════════════════
   Bridge 生成预览
   模式: {TEMPLATES.get(mode, {}).get('name', 'Custom')}
+  并发: {'⚡ 并行（分离文件+git仲裁）' if mode == 'parallel-team' else '🔗 串行（接力棒模式）'}
   项目: {project_name}
   Agent A: {agent_a['name']} ({agent_a['role']})
   Agent B: {agent_b['name']} ({agent_b['role']})
 ══════════════════════════════════════
+"""
 
+        if mode == "parallel-team":
+            preview += f"""
+📄 AGENTS.md: 项目元信息 + 6 道工序流水线
+📄 agent-{a_name.lower()}.md: {a_name} 独立状态（只有 {a_name} 写）
+📄 agent-{b_name.lower()}.md: {b_name} 独立状态（只有 {b_name} 写）
+📄 board.md: 共享任务看板（git 仲裁并发）
+📄 PARALLEL_GUIDE.md: 并行协作快速入门
+📄 GIT_WORKTREE.md: worktree 物理隔离指南
+📂 tasks/: 独立任务文件
+📂 specs/: 只读规范文档
+
+-- 关键设计 --
+🔒 互斥写: 各自的状态文件互不冲突
+📋 共享写: board.md 和 tasks/ 通过 git 控制并发
+🔄 节奏: 原子操作写完立即 commit→push，开始前先 pull
+"""
+        else:
+            preview += f"""
 📄 AGENTS.md:
 {generate_agents_md(mode, agent_a, agent_b, project_name)[:600]}...
 
@@ -908,6 +1145,7 @@ class BridgeApp:
 
         mode = self.mode.get()
         agent_a, agent_b = self._get_agent_configs()
+        a_name, b_name = agent_a['name'], agent_b['name']
         project_name = self.project_name.get() or os.path.basename(target) or "未命名项目"
 
         if mode == "custom":
@@ -915,46 +1153,76 @@ class BridgeApp:
         else:
             pipeline = None
 
-        # 检查是否覆盖
-        existing = [f for f in ["AGENTS.md", "COLLAB.md", "README.md", "specs"]
-                    if os.path.exists(os.path.join(target, f))]
+        # 检查覆盖
+        check_files = ["AGENTS.md", "COLLAB.md", "README.md", "board.md",
+                       f"agent-{a_name.lower()}.md", f"agent-{b_name.lower()}.md"]
+        existing = [f for f in check_files if os.path.exists(os.path.join(target, f))]
         if existing:
             if not messagebox.askyesno("确认覆盖",
-                                        f"以下文件/目录已存在，将被覆盖：\n" +
+                                        f"以下文件已存在，将被覆盖：\n" +
                                         "\n".join(f"  • {f}" for f in existing) +
                                         "\n\n是否继续？"):
                 return
 
         try:
-            files = {
-                "AGENTS.md": generate_agents_md(mode, agent_a, agent_b, project_name),
-                "COLLAB.md": generate_collab_md(mode, agent_a, agent_b, pipeline),
-                "README.md": generate_readme_md(mode, agent_a, agent_b, project_name),
-            }
+            all_files = {}
 
-            specs_active = os.path.join(target, "specs", "active")
-            specs_review = os.path.join(specs_active, "review")
-            specs_fix = os.path.join(specs_active, "fix-orders")
-            specs_archive = os.path.join(target, "specs", "archive")
+            if mode == "parallel-team":
+                # ── 并行模式：独立文件结构 ──
+                all_files["AGENTS.md"] = generate_agents_md(mode, agent_a, agent_b, project_name)
+                all_files["README.md"] = generate_readme_md(mode, agent_a, agent_b, project_name)
+                all_files[f"agent-{a_name.lower()}.md"] = generate_agent_status_md(
+                    a_name, agent_a['role'], b_name)
+                all_files[f"agent-{b_name.lower()}.md"] = generate_agent_status_md(
+                    b_name, agent_b['role'], a_name)
+                all_files["board.md"] = generate_board_md(a_name, b_name)
+                all_files["GIT_WORKTREE.md"] = generate_git_worktree_guide()
+                all_files["PARALLEL_GUIDE.md"] = generate_parallel_struct(a_name, b_name)
 
-            spec_files = {
-                os.path.join(specs_active, "tasks.md"): generate_tasks_md(mode),
-                os.path.join(specs_active, "acceptance.md"): generate_acceptance_md(),
-                os.path.join(specs_active, "escalation.md"):
-                    "# 升级记录\n\n暂无升级记录。\n",
-                os.path.join(specs_review, "TEMPLATE.md"): generate_review_template(),
-                os.path.join(specs_fix, "TEMPLATE.md"): generate_fix_template(),
-            }
+                tasks_dir = os.path.join(target, "tasks")
+                specs_dir = os.path.join(target, "specs")
+                os.makedirs(tasks_dir, exist_ok=True)
+                os.makedirs(specs_dir, exist_ok=True)
+                # 写入文件
+                for name, content in all_files.items():
+                    with open(os.path.join(target, name), "w", encoding="utf-8") as f:
+                        f.write(content)
+                # 创建示例任务文件
+                with open(os.path.join(tasks_dir, "T001-example.md"), "w", encoding="utf-8") as f:
+                    f.write(f"# T001: 示例任务\n\n- **状态**：📌待认领\n- **OWNER**：无\n"
+                           f"- **模块**：src/example\n\n## 目标\n[待填写]\n\n## 验收标准\n- [ ] 待填写\n")
+            else:
+                # ── 串行模式：原逻辑 ──
+                all_files["AGENTS.md"] = generate_agents_md(mode, agent_a, agent_b, project_name)
+                all_files["COLLAB.md"] = generate_collab_md(mode, agent_a, agent_b, pipeline)
+                all_files["README.md"] = generate_readme_md(mode, agent_a, agent_b, project_name)
 
-            # 创建目录
-            for d in [specs_active, specs_review, specs_fix, specs_archive]:
-                os.makedirs(d, exist_ok=True)
+                specs_active = os.path.join(target, "specs", "active")
+                specs_review = os.path.join(specs_active, "review")
+                specs_fix = os.path.join(specs_active, "fix-orders")
+                specs_archive = os.path.join(target, "specs", "archive")
 
-            # 写入文件
-            all_files = {**files, **spec_files}
-            for path, content in all_files.items():
-                with open(path, "w", encoding="utf-8") as f:
-                    f.write(content)
+                spec_files = {
+                    os.path.join(specs_active, "tasks.md"): generate_tasks_md(mode),
+                    os.path.join(specs_active, "acceptance.md"): generate_acceptance_md(),
+                    os.path.join(specs_active, "escalation.md"):
+                        "# 升级记录\n\n暂无升级记录。\n",
+                    os.path.join(specs_review, "TEMPLATE.md"): generate_review_template(),
+                    os.path.join(specs_fix, "TEMPLATE.md"): generate_fix_template(),
+                }
+
+                for d in [specs_active, specs_review, specs_fix, specs_archive]:
+                    os.makedirs(d, exist_ok=True)
+
+                for path, content in spec_files.items():
+                    all_files[os.path.relpath(path, target)] = content
+                    with open(path, "w", encoding="utf-8") as f:
+                        f.write(content)
+
+                # 写入根文件
+                for name in ["AGENTS.md", "COLLAB.md", "README.md"]:
+                    with open(os.path.join(target, name), "w", encoding="utf-8") as f:
+                        f.write(all_files[name])
 
             # .gitignore
             gitignore_path = os.path.join(target, ".gitignore")
@@ -966,9 +1234,7 @@ class BridgeApp:
 
             # 生成报告
             report = f"已在 {target} 中生成以下文件：\n\n"
-            report += "\n".join(f"  ✅ {os.path.relpath(p, target)}" for p in all_files)
-            if not os.path.exists(gitignore_path):
-                pass  # 已创建
+            report += "\n".join(f"  ✅ {p}" for p in sorted(all_files.keys()))
 
             self.preview_text.delete("1.0", tk.END)
             self.preview_text.insert("1.0", report)

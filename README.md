@@ -1,39 +1,50 @@
-# Bridge — AI Agent 协作桥接器
+# 记账本App — Architect-Engineer 协作模式
 
-一个 GUI 工具，在目标项目文件夹中生成 AI Agent 桥接流程的 `.md` 文件，
-让两个 AI Agent（如 GPT + Reasonix）通过文件系统高效协作。
+> GPT 做架构师（规划/审查/验收），Reasonix 做工程师（编码/测试/修复）。9 道工序流水线，含交付审查门、整改闭环、GPT 升级修复机制。
 
-## 运行
-
-```bash
-python bridge.py
-```
-
-零依赖，仅需 Python 3.8+ 标准库。
-
-## 功能
-
-- **5 种协作模式**：Architect-Engineer / Peer-Review / Spec-Driven / Quick-Start / 自定义
-- **4 标签页 GUI**：项目设置 → Agent 配置 → LLM 辅助 → 流水线编辑
-- **一键生成**：在目标项目文件夹生成 AGENTS.md、COLLAB.md、specs/ 等完整协作框架
-- **可选 LLM 集成**：接入 OpenAI 兼容 API，AI 分析需求并自动填充配置
-- **流水线编辑器**：自定义模式下增删改查 + 排序流水线阶段
-
-## 协作模式一览
-
-| 模式 | 说明 | 工序数 |
-|------|------|--------|
-| Architect-Engineer | GPT 架构师 + Reasonix 工程师，含审查门和升级修复 | 9 |
-| Peer-Review | 两个平等 Agent 并行开发 + 交叉审查 | 5 |
-| Spec-Driven | 规范先行，严格门禁，逐任务审查 | 8 |
-| Quick-Start | 最小化设置，快速开始 | 3 |
-| Custom | 用户完全自定义流水线 | 自定义 |
-
-## 项目结构
+## 协作架构
 
 ```
-bridge/
-├── bridge.py          # 主程序（单文件，零依赖）
-├── .gitignore
-└── README.md
+┌─────────────────┐         ┌─────────────────┐
+│  GPT             │  specs/  │  Reasonix        │
+│  架构师/审核员         │◄───────▶│  工程师/执行者         │
+│                 │ COLLAB  │                 │
+│  需求澄清、架构设计、任务分解│         │  编码实现、自测验证、整改修复│
+└─────────────────┘         └─────────────────┘
 ```
+
+## 流水线
+
+```
+需求澄清 (Agent A) ──→
+  架构设计 (Agent A) ──→
+  任务分解 (Agent A) ──→
+  编码实现 (Agent B) ──→
+  自测验证 (Agent B) ──→
+  交付审查 (Agent A) ──→
+  整改修复 (Agent B) ──→
+  升级修复 (Agent A) ──→
+  最终验收 (Agent A)
+```
+
+## 关键文件
+
+| 文件 | 作用 |
+|------|------|
+| `AGENTS.md` | 项目身份证 + 流水线定义 |
+| `COLLAB.md` | 唯一真相源：当前状态 |
+| `specs/active/tasks.md` | 任务分解 + 状态追踪 |
+| `specs/active/review/` | 审查报告 |
+| `specs/active/fix-orders/` | 整改指令 |
+
+## 快速开始
+
+### Agent A 启动
+读 `AGENTS.md` → `COLLAB.md` → 执行你的流水线阶段
+
+### Agent B 启动
+读 `AGENTS.md` → `COLLAB.md` → `specs/active/tasks.md` → 开始编码
+
+---
+
+*由 Bridge 生成于 2026-07-21 15:50*
