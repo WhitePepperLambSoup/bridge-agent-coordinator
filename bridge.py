@@ -2180,9 +2180,8 @@ class BridgeApp:
         os.makedirs(bridge_dir, exist_ok=True)
 
         # ── P0 修复: Agent 名称消毒（防路径逃逸）──
-        for agent_key, agent_dict in [("A", agent_a), ("B", agent_b)]:
-            if agent_c and agent_key == "C":
-                agent_dict = agent_c
+        for agent_key, agent_dict in [("A", agent_a), ("B", agent_b)] + \
+            ([("C", agent_c)] if agent_c else []):
             raw = agent_dict.get('name', '')
             safe = _sanitize_agent_name(raw)
             if safe != raw:
@@ -2190,6 +2189,18 @@ class BridgeApp:
                     f"Agent {agent_key} 名称 '{raw}' 包含不安全字符，已修正为 '{safe}'。\n继续？"):
                     return
                 agent_dict['name'] = safe
+        # 消毒后重新赋值——关键！后续代码用这些变量拼文件名
+        a_name = agent_a['name']
+        b_name = agent_b['name']
+        if agent_c:
+            agent_c['name'] = _sanitize_agent_name(agent_c.get('name', 'agent-c'))
+
+        # ── 路径安全校验: 确保最终写入路径在 bridge_dir 内 ──
+        def _safe_path(filename):
+            full = os.path.realpath(os.path.join(bridge_dir, filename))
+            if not full.startswith(os.path.realpath(bridge_dir) + os.sep) and full != os.path.realpath(bridge_dir):
+                raise ValueError(f"路径逃逸被阻止: {filename} -> {full}")
+            return full
 
         # ── P0 修复: 并行模式 Git 预检 ──
         if mode in ("parallel-team", "loop-engineering", "parallel-claim"):
@@ -2252,18 +2263,19 @@ class BridgeApp:
                 if mode == "loop-engineering":
                     all_files["loop-budget.md"] = generate_loop_budget_md(self.lang)
                     all_files["verify-template.md"] = generate_verify_template(self.lang)
-                    with open(os.path.join(target, "loop-budget.md"), "w", encoding="utf-8") as f:
+                    with open(_safe_path("loop-budget.md"), "w", encoding="utf-8") as f:
                         f.write(all_files["loop-budget.md"])
-                    with open(os.path.join(target, "verify-template.md"), "w", encoding="utf-8") as f:
+                    with open(_safe_path("verify-template.md"), "w", encoding="utf-8") as f:
                         f.write(all_files["verify-template.md"])
 
                 # ── Parallel-Claim 额外文件 ──
                 if mode == "parallel-claim":
                     all_files["spec-claim-guide.md"] = generate_spec_claim_template(self.lang)
-                    with open(os.path.join(target, "spec-claim-guide.md"), "w", encoding="utf-8") as f:
+                    with open(_safe_path("spec-claim-guide.md"), "w", encoding="utf-8") as f:
                         f.write(all_files["spec-claim-guide.md"])
                     # 创建示例 spec 文件
-                    with open(os.path.join(specs_dir, "spec-example.md"), "w", encoding="utf-8") as f:
+                    # 创建示例 spec 文件
+                    with open(_safe_path(os.path.join("specs", "spec-example.md")), "w", encoding="utf-8") as f:
                         f.write("# Spec: 示例功能\nSpec claimed by agent: <unclaimed>\n\n## 目标\n[待填写]\n\n## 验收标准\n- [ ] 待填写\n")
             else:
                 # ── 串行模式：原逻辑 ──
@@ -2305,7 +2317,28 @@ class BridgeApp:
                     f.write(T("tmpl.gitignore_content", self.lang))
 
             # 生成报告
-            report = f"已在 {target} 中生成以下文件：\n\n"
+            # ── 项目根入口指针: 告诉 Agent 所有协作文件在 .bridge/ 下 ──
+            bridge_entry = os.path.join(target, "BRIDGE.md")
+            entry_content = f"""# BRIDGE.md — 入口指针
+
+> ⚠️ 所有 AI Agent 协作文件位于 `.bridge/` 目录下，不在此文件所在目录。
+> 请以 `.bridge/` 下的文件为准。
+
+## 启动流程
+
+1. 读 `.bridge/AGENTS.md` — 了解项目和流水线
+2. 读 `.bridge/board.md`（并行模式）或 `.bridge/COLLAB.md`（串行模式）— 了解当前状态
+3. 按流水线阶段开始工作
+
+## 文件索引
+
+所有协作文件在 `.bridge/` 目录中。
+生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M')}
+"""
+            with open(bridge_entry, "w", encoding="utf-8") as f:
+                f.write(entry_content)
+
+            report = f"已在 {target} 中生成以下文件：\n\n  📄 BRIDGE.md (入口指针 — Agent 应从此文件开始)\n"
             report += "\n".join(f"  ✅ {p}" for p in sorted(all_files.keys()))
 
             self.preview_text.delete("1.0", tk.END)
