@@ -386,9 +386,9 @@ _No reviews yet_
 
 | Tier | 标签 | 含义 | 适合的 Agent 类型 |
 |------|------|------|------------------|
-| 🟢 LOW | 低复杂度 | 模板代码、CRUD、配置修改、简单修复 | 低成本模型（DeepSeek / 本地模型） |
+| 🟢 LOW | 低复杂度 | 模板代码、CRUD、配置修改、简单修复 | 低成本模型（deepseek-v3 / 本地模型） |
 | 🟡 MID | 中等复杂度 | 业务逻辑、重构、性能优化 | 中等模型 |
-| 🔴 HIGH | 高复杂度 | 架构设计、安全审计、算法设计、代码审查 | 高能力模型（GPT-4 / Claude） |
+| 🔴 HIGH | 高复杂度 | 架构设计、安全审计、算法设计、代码审查 | 高能力模型（gpt-4.1 / claude-sonnet-4-5） |
 
 > 此分级不绑定具体模型名称——由用户根据自己手头的模型自行映射。""",
             "en": """## Meta
@@ -403,7 +403,7 @@ _No reviews yet_
 |------|-------|---------|---------------------|
 | 🟢 LOW | Low complexity | Boilerplate, CRUD, config changes, simple fixes | Low-cost model (DeepSeek / local) |
 | 🟡 MID | Medium complexity | Business logic, refactoring, optimization | Mid-tier model |
-| 🔴 HIGH | High complexity | Architecture, security audit, algorithm design, code review | High-capability model (GPT-4 / Claude) |
+| 🔴 HIGH | High complexity | Architecture, security audit, algorithm design, code review | High-capability model (gpt-4.1 / claude-sonnet-4-5) |
 
 > Tiers don't name specific models — you map them to whatever agents you have."""
         },
@@ -799,6 +799,53 @@ Read `AGENTS.md` → `COLLAB.md` → `specs/active/tasks.md` → start coding
 }
 
 # ═══════════════════════════════════════════════════════════════
+# 模型注册表 — 当前主流模型，agent-agnostic
+# ═══════════════════════════════════════════════════════════════
+
+MODEL_REGISTRY = {
+    # ── OpenAI ──
+    "gpt-4.1":         {"vendor": "OpenAI", "tier": "high",  "cost": "$$$", "notes": "最新旗舰"},
+    "gpt-4.1-mini":    {"vendor": "OpenAI", "tier": "mid",   "cost": "$$",  "notes": "性价比高"},
+    "gpt-4.1-nano":    {"vendor": "OpenAI", "tier": "low",   "cost": "$",   "notes": "最快最便宜"},
+    "gpt-4o":          {"vendor": "OpenAI", "tier": "high",  "cost": "$$$", "notes": "多模态旗舰"},
+    "gpt-4o-mini":     {"vendor": "OpenAI", "tier": "mid",   "cost": "$$",  "notes": "轻量多模态"},
+    "o4-mini":         {"vendor": "OpenAI", "tier": "high",  "cost": "$$",  "notes": "推理模型"},
+    "o3":              {"vendor": "OpenAI", "tier": "high",  "cost": "$$$", "notes": "最强推理"},
+    # ── Anthropic ──
+    "claude-opus-4-5": {"vendor": "Anthropic", "tier": "high",  "cost": "$$$", "notes": "最强 Claude"},
+    "claude-sonnet-4-5":{"vendor": "Anthropic", "tier": "high", "cost": "$$",  "notes": "性价比旗舰"},
+    "claude-haiku-4-5":{"vendor": "Anthropic", "tier": "low",  "cost": "$",   "notes": "最快 Claude"},
+    "claude-opus-4":   {"vendor": "Anthropic", "tier": "high",  "cost": "$$$", "notes": "上一代旗舰"},
+    # ── Google ──
+    "gemini-2.5-pro":  {"vendor": "Google", "tier": "high",  "cost": "$$$", "notes": "Gemini 旗舰"},
+    "gemini-2.5-flash":{"vendor": "Google", "tier": "mid",   "cost": "$",   "notes": "高速 Gemini"},
+    "gemini-2.5-flash-lite":{"vendor": "Google", "tier": "low","cost": "$",  "notes": "最便宜 Gemini"},
+    # ── DeepSeek ──
+    "deepseek-v3":     {"vendor": "DeepSeek", "tier": "high",  "cost": "$",   "notes": "MoE 旗舰，极便宜"},
+    "deepseek-r1":     {"vendor": "DeepSeek", "tier": "high",  "cost": "$$",  "notes": "推理模型"},
+    "deepseek-v3-0324":{"vendor": "DeepSeek", "tier": "high",  "cost": "$",   "notes": "最新 V3 版本"},
+    # ── 国产模型 ──
+    "qwen3-max":       {"vendor": "Alibaba", "tier": "high",  "cost": "$$",  "notes": "通义千问旗舰"},
+    "qwen3-plus":      {"vendor": "Alibaba", "tier": "mid",   "cost": "$",   "notes": "千问中等"},
+    "qwen3-turbo":     {"vendor": "Alibaba", "tier": "low",   "cost": "$",   "notes": "千问快速"},
+    "doubao-1.5-pro":  {"vendor": "ByteDance","tier": "high", "cost": "$",   "notes": "豆包旗舰"},
+    "glm-4.5":         {"vendor": "Zhipu",   "tier": "high",  "cost": "$$",  "notes": "智谱旗舰"},
+    "moonshot-v1":     {"vendor": "Moonshot", "tier": "mid",   "cost": "$",   "notes": "Kimi 底层模型"},
+    "yi-large":        {"vendor": "01.AI",    "tier": "high",  "cost": "$$",  "notes": "零一万物"},
+    # ── 开源/本地 ──
+    "llama-4-maverick":{"vendor": "Meta",    "tier": "high",  "cost": "$",   "notes": "开源旗舰"},
+    "llama-4-scout":   {"vendor": "Meta",    "tier": "mid",   "cost": "$",   "notes": "开源轻量"},
+    "mistral-large":   {"vendor": "Mistral",  "tier": "high",  "cost": "$$",  "notes": "Mistral 旗舰"},
+    "local-model":     {"vendor": "Local",    "tier": "varies","cost": "$",   "notes": "本地模型（Ollama/LM Studio）"},
+}
+
+def get_models_by_tier(tier=None):
+    """按 tier 筛选模型"""
+    if tier:
+        return {k: v for k, v in MODEL_REGISTRY.items() if v["tier"] == tier}
+    return MODEL_REGISTRY
+
+# ═══════════════════════════════════════════════════════════════
 # 模板定义
 # ═══════════════════════════════════════════════════════════════
 
@@ -818,8 +865,8 @@ TEMPLATES = {
             {"id": "escalation",   "name": "升级修复",   "agent": "Agent A", "desc": "2 轮修复失败后 Agent A 亲自下场"},
             {"id": "acceptance",   "name": "最终验收",   "agent": "Agent A", "desc": "6 维度验收清单，无证据不签字"},
         ],
-        "agent_a": {"name": "GPT", "role": "架构师 / 审核员", "model": "GPT-4 / Claude"},
-        "agent_b": {"name": "Reasonix", "role": "工程师 / 执行者", "model": "DeepSeek / 本地模型"},
+        "agent_a": {"name": "GPT", "role": "架构师 / 审核员", "model": "gpt-4.1"},
+        "agent_b": {"name": "Reasonix", "role": "工程师 / 执行者", "model": "deepseek-v3"},
     },
 
     "peer-review": {
@@ -833,8 +880,8 @@ TEMPLATES = {
             {"id": "merge_test",    "name": "合并测试",   "agent": "Both",    "desc": "合并代码，运行集成测试"},
             {"id": "joint_accept",  "name": "联合验收",   "agent": "Both",    "desc": "共同确认交付质量"},
         ],
-        "agent_a": {"name": "GPT", "role": "模块 A 负责人", "model": "GPT-4"},
-        "agent_b": {"name": "Claude", "role": "模块 B 负责人", "model": "Claude"},
+        "agent_a": {"name": "GPT", "role": "模块 A 负责人", "model": "gpt-4.1"},
+        "agent_b": {"name": "Claude", "role": "模块 B 负责人", "model": "claude-sonnet-4-5"},
     },
 
     "spec-driven": {
@@ -851,8 +898,8 @@ TEMPLATES = {
             {"id": "integration",  "name": "集成验证",   "agent": "Agent A", "desc": "跨任务集成检查"},
             {"id": "signoff",      "name": "签字交付",   "agent": "Agent A", "desc": "最终验收签字"},
         ],
-        "agent_a": {"name": "GPT", "role": "规范编写者 / 审查员", "model": "GPT-4"},
-        "agent_b": {"name": "Reasonix", "role": "任务实现者", "model": "DeepSeek"},
+        "agent_a": {"name": "GPT", "role": "规范编写者 / 审查员", "model": "gpt-4.1"},
+        "agent_b": {"name": "Reasonix", "role": "任务实现者", "model": "deepseek-v3"},
     },
 
     "quick-start": {
@@ -864,8 +911,8 @@ TEMPLATES = {
             {"id": "build", "name": "构建", "agent": "Agent B", "desc": "编码实现"},
             {"id": "check", "name": "检查", "agent": "Agent A", "desc": "快速审查"},
         ],
-        "agent_a": {"name": "GPT", "role": "规划者", "model": "GPT-4"},
-        "agent_b": {"name": "Reasonix", "role": "执行者", "model": "DeepSeek"},
+        "agent_a": {"name": "GPT", "role": "规划者", "model": "gpt-4.1"},
+        "agent_b": {"name": "Reasonix", "role": "执行者", "model": "deepseek-v3"},
     },
 
     "parallel-team": {
@@ -880,8 +927,8 @@ TEMPLATES = {
             {"id": "fix_merge",     "name": "合并修复",   "agent": "Both",    "desc": "解决合并冲突和审查意见"},
             {"id": "final_accept",  "name": "最终验收",   "agent": "Agent A", "desc": "全量验收签字"},
         ],
-        "agent_a": {"name": "GPT", "role": "架构师 / 审查员", "model": "GPT-4"},
-        "agent_b": {"name": "Reasonix", "role": "主力工程师", "model": "DeepSeek"},
+        "agent_a": {"name": "GPT", "role": "架构师 / 审查员", "model": "gpt-4.1"},
+        "agent_b": {"name": "Reasonix", "role": "主力工程师", "model": "deepseek-v3"},
     },
 
     "loop-engineering": {
@@ -895,8 +942,8 @@ TEMPLATES = {
             {"id": "verify",     "name": "独立验证",   "agent": "Agent A", "desc": "独立 Verify agent 判定是否通过（从不自己打分）"},
             {"id": "settle",     "name": "结算",       "agent": "Agent A", "desc": "ok→交付 / not yet→返回 Execute / impossible→放弃"},
         ],
-        "agent_a": {"name": "GPT", "role": "Goal 定义者 / Verify 裁判", "model": "GPT-4"},
-        "agent_b": {"name": "Reasonix", "role": "Execute 执行者", "model": "DeepSeek"},
+        "agent_a": {"name": "GPT", "role": "Goal 定义者 / Verify 裁判", "model": "gpt-4.1"},
+        "agent_b": {"name": "Reasonix", "role": "Execute 执行者", "model": "deepseek-v3"},
     },
 
     "parallel-claim": {
@@ -910,7 +957,7 @@ TEMPLATES = {
             {"id": "verify",      "name": "独立验证",     "agent": "Agent A", "desc": "Agent A 验证所有 spec 的完成情况"},
             {"id": "settle",      "name": "结算交付",     "agent": "Agent A", "desc": "全部通过→交付 / 未通过→退回对应 Agent"},
         ],
-        "agent_a": {"name": "GPT", "role": "Spec 管理者 / 验证者", "model": "GPT-4"},
+        "agent_a": {"name": "GPT", "role": "Spec 管理者 / 验证者", "model": "gpt-4.1"},
         "agent_b": {"name": "Agent B", "role": "Spec 执行者", "model": "Configurable"},
     },
 }
@@ -1542,16 +1589,22 @@ class BridgeApp:
         self.project_name = tk.StringVar(value="")
         self.agent_a_name = tk.StringVar(value="GPT")
         self.agent_a_role = tk.StringVar(value=T("mode.architect-engineer.agent_a.role", self.lang) if False else "架构师 / 审核员")
-        self.agent_a_model = tk.StringVar(value="GPT-4")
+        self.agent_a_model = tk.StringVar(value="gpt-4.1")
         self.agent_b_name = tk.StringVar(value="Reasonix")
         self.agent_b_role = tk.StringVar(value="工程师 / 执行者")
-        self.agent_b_model = tk.StringVar(value="DeepSeek")
+        self.agent_b_model = tk.StringVar(value="deepseek-v3")
+
+        # Agent C（可选）
+        self.agent_c_enabled = tk.BooleanVar(value=False)
+        self.agent_c_name = tk.StringVar(value="Agent C")
+        self.agent_c_role = tk.StringVar(value="辅助执行者")
+        self.agent_c_model = tk.StringVar(value="claude-haiku-4-5")
 
         # LLM 设置
         self.llm_enabled = tk.BooleanVar(value=False)
         self.llm_api_key = tk.StringVar(value="")
         self.llm_api_base = tk.StringVar(value="https://api.openai.com/v1")
-        self.llm_model = tk.StringVar(value="gpt-4o-mini")
+        self.llm_model = tk.StringVar(value="gpt-4.1-mini")
         self.llm_user_input = tk.StringVar(value="")
 
         # 自定义流水线
@@ -1653,6 +1706,19 @@ class BridgeApp:
             ttk.Label(b_frame, text=label, width=10).grid(row=i, column=0, sticky=tk.W, pady=3)
             ttk.Entry(b_frame, textvariable=var, width=40).grid(row=i, column=1, sticky=tk.EW, padx=5)
         b_frame.columnconfigure(1, weight=1)
+
+        # Agent C（可选，默认折叠）
+        self.c_frame = ttk.LabelFrame(tab2, text="Agent C（可选 — 第三 Agent）", padding=10)
+        self.c_toggle_btn = ttk.Button(tab2, text="➕ 添加第三个 Agent",
+                                        command=self._toggle_agent_c)
+        self.c_toggle_btn.pack(fill=tk.X, pady=(0, 5))
+        # 默认隐藏
+        for i, (label, var) in enumerate([
+            ("名称", self.agent_c_name), ("角色描述", self.agent_c_role), ("模型", self.agent_c_model)
+        ]):
+            ttk.Label(self.c_frame, text=label, width=10).grid(row=i, column=0, sticky=tk.W, pady=3)
+            ttk.Entry(self.c_frame, textvariable=var, width=40).grid(row=i, column=1, sticky=tk.EW, padx=5)
+        self.c_frame.columnconfigure(1, weight=1)
 
         # ─── Tab 3: LLM 辅助 ───
         tab3 = ttk.Frame(notebook, padding=15)
@@ -1779,6 +1845,16 @@ class BridgeApp:
             self.agent_b_role.set(tmpl["agent_b"]["role"])
             self.agent_b_model.set(tmpl["agent_b"]["model"])
 
+    def _toggle_agent_c(self):
+        if self.agent_c_enabled.get():
+            self.c_frame.pack_forget()
+            self.c_toggle_btn.config(text="➕ 添加第三个 Agent")
+            self.agent_c_enabled.set(False)
+        else:
+            self.c_frame.pack(fill=tk.X, pady=(0, 15), before=self.c_toggle_btn)
+            self.c_toggle_btn.config(text="➖ 移除第三个 Agent")
+            self.agent_c_enabled.set(True)
+
     def _switch_lang(self, lang):
         self.lang = lang
         set_lang(lang)
@@ -1866,10 +1942,13 @@ class BridgeApp:
         self.pipeline_listbox.selection_set(idx + 1)
 
     def _get_agent_configs(self):
-        return (
+        agents = [
             {"name": self.agent_a_name.get(), "role": self.agent_a_role.get(), "model": self.agent_a_model.get()},
             {"name": self.agent_b_name.get(), "role": self.agent_b_role.get(), "model": self.agent_b_model.get()},
-        )
+        ]
+        if self.agent_c_enabled.get():
+            agents.append({"name": self.agent_c_name.get(), "role": self.agent_c_role.get(), "model": self.agent_c_model.get()})
+        return agents
 
     def _llm_analyze(self):
         if not self.llm_enabled.get():
@@ -1915,7 +1994,8 @@ class BridgeApp:
 
     def _preview(self):
         mode = self.mode.get()
-        agent_a, agent_b = self._get_agent_configs()
+        agents = self._get_agent_configs()
+        agent_a, agent_b = agents[0], agents[1]
         a_name, b_name = agent_a['name'], agent_b['name']
         project_name = self.project_name.get() or "未命名项目"
 
@@ -1987,7 +2067,9 @@ class BridgeApp:
             return
 
         mode = self.mode.get()
-        agent_a, agent_b = self._get_agent_configs()
+        agents = self._get_agent_configs()
+        agent_a, agent_b = agents[0], agents[1]
+        agent_c = agents[2] if len(agents) > 2 else None
         a_name, b_name = agent_a['name'], agent_b['name']
         project_name = self.project_name.get() or os.path.basename(target) or "未命名项目"
 
@@ -2021,6 +2103,12 @@ class BridgeApp:
                 all_files["board.md"] = generate_board_md(a_name, b_name, self.lang)
                 all_files["GIT_WORKTREE.md"] = generate_git_worktree_guide()
                 all_files["PARALLEL_GUIDE.md"] = generate_parallel_struct(a_name, b_name)
+
+                # Agent C（如果启用）
+                if agent_c:
+                    c_name = agent_c['name']
+                    all_files[f"agent-{c_name.lower()}.md"] = generate_agent_status_md(
+                        c_name, agent_c['role'], f"{a_name} / {b_name}")
 
                 tasks_dir = os.path.join(target, "tasks")
                 specs_dir = os.path.join(target, "specs")
