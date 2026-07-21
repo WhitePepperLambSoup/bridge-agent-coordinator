@@ -15,12 +15,12 @@ Zero dependencies — Python 3.8+ standard library only.
 
 ## Features
 
-- **6 collaboration modes**: Architect-Engineer / Peer-Review / Spec-Driven / Quick-Start / Parallel-Team / Custom
+- **7 collaboration modes**: Architect-Engineer / Peer-Review / Spec-Driven / Quick-Start / Parallel-Team / Loop-Engineering / Parallel-Claim
 - **🌐 Bilingual**: Full Chinese + English UI, switch with one click. Generated `.md` files follow the selected language.
 - **4-tab GUI**: Project Setup → Agent Config → LLM Assist → Pipeline Editor
 - **One-click generation**: Produces AGENTS.md, COLLAB.md (or agent-specific status files for parallel mode), specs/, and more in your target folder
 - **Optional LLM integration**: OpenAI-compatible API to analyze requirements and auto-fill configuration
-- **Pipeline editor**: Add, remove, reorder, and edit pipeline stages in Custom mode
+- **Pipeline editor**: Add, remove, reorder, and edit stages for custom pipeline flows
 
 ## Collaboration Modes
 
@@ -31,7 +31,8 @@ Zero dependencies — Python 3.8+ standard library only.
 | Spec-Driven | Serial | 8 | Spec-first with strict gates |
 | Quick-Start | Serial | 3 | Minimal setup, rapid prototyping |
 | Parallel-Team | **Parallel** | 6 | Two agents work simultaneously |
-| Custom | Configurable | Custom | Define your own pipeline |
+| Loop-Engineering | **Parallel** | 5 | Goal→Execute→Verify→Settle closed loop |
+| Parallel-Claim | **Parallel** | 5 | Spec claim lines, no worktree needed |
 
 ## Parallel Mode: How Two Agents Work Simultaneously
 

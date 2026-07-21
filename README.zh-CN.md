@@ -15,12 +15,12 @@ python bridge.py
 
 ## 功能
 
-- **6 种协作模式**：Architect-Engineer / Peer-Review / Spec-Driven / Quick-Start / Parallel-Team / 自定义
+- **7 种协作模式**：Architect-Engineer / Peer-Review / Spec-Driven / Quick-Start / Parallel-Team / Loop-Engineering / Parallel-Claim
 - **🌐 中英双语**：完整的中英文 GUI，一键切换。生成的 `.md` 文件跟随所选语言。
 - **4 标签页 GUI**：项目设置 → Agent 配置 → LLM 辅助 → 流水线编辑
 - **一键生成**：在目标项目文件夹生成 AGENTS.md、COLLAB.md（并行模式则为分离状态文件）、specs/ 等完整协作框架
 - **可选 LLM 集成**：接入 OpenAI 兼容 API，AI 分析需求并自动填充配置
-- **流水线编辑器**：自定义模式下增删改查 + 排序流水线阶段
+- **流水线编辑器**：自定义流水线阶段的增删改查 + 排序
 
 ## 协作模式一览
 
@@ -31,7 +31,8 @@ python bridge.py
 | Spec-Driven | 串行 | 8 | 规范先行，严格门禁 |
 | Quick-Start | 串行 | 3 | 最小化设置，快速原型 |
 | Parallel-Team | **并行** | 6 | 两个 Agent 同时工作 |
-| Custom | 可配置 | 自定义 | 自定义流水线 |
+| Loop-Engineering | **并行** | 5 | Goal→Execute→Verify→Settle 闭环 |
+| Parallel-Claim | **并行** | 5 | Spec claim 行，无需 worktree |
 
 ## 并行模式：两个 Agent 如何同时工作
 
