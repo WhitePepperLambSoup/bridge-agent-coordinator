@@ -1,0 +1,25 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Dependencies
+node_modules/
+__pycache__/
+*.pyc
+vendor/
+
+# Build
+dist/
+build/
+target/
+
+# Env
+.env
+.env.local
+
+# Reasonix
+.reasonix/
