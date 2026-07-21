@@ -199,6 +199,16 @@ _STR = {
             "desc": {"zh": "两个 Agent 同时并行工作。通过分离状态文件 + git 仲裁解决并发冲突。",
                      "en": "Two agents work in parallel. Solves concurrency via split state files + git arbitration."},
         },
+        "loop-engineering": {
+            "name": {"zh": "Loop-Engineering", "en": "Loop-Engineering"},
+            "desc": {"zh": "借鉴 loop-engineering + loop.js 设计。Goal→Execute→Verify→Settle。独立 Verify agent，预算守卫。",
+                     "en": "Inspired by loop-engineering + loop.js. Goal→Execute→Verify→Settle. Independent Verify agent with budget guards."},
+        },
+        "parallel-claim": {
+            "name": {"zh": "Parallel-Claim", "en": "Parallel-Claim"},
+            "desc": {"zh": "借鉴 LoopGate 的 Claim 认领机制。多 Agent 通过 spec claim 行无冲突并行，不依赖 worktree。",
+                     "en": "Inspired by LoopGate's claim mechanism. Multi-agent parallel via spec claim lines, no worktree needed."},
+        },
     },
 
     # 流水线阶段名称
@@ -276,6 +286,22 @@ _STR = {
 2. **Failures don't skip stages**: Any stage failure must return to implementation
 3. **Read before write**: Every agent reads AGENTS.md → COLLAB.md → specs/ on startup
 4. **No evidence, no sign-off**: Acceptance requires verifiable evidence"""
+        },
+        "agents_rules_parallel": {
+            "zh": """## 关键规则
+
+1. **独立状态文件**：每个 Agent 有自己的 `agent-{name}.md`，只读对方文件，不写对方文件
+2. **board.md 共享**：任务看板通过 Git 控制并发——改前 pull，改后立即 commit
+3. **先读后写**：每个 agent 启动时：读 AGENTS.md → 自己的 agent-{name}.md → board.md
+4. **不写对方文件**：互斥写是防止并发冲突的基础
+5. **写完就 commit**：原子操作完成后立即提交，不堆积改动""",
+            "en": """## Key Rules
+
+1. **Separate state files**: Each agent has its own `agent-{name}.md` — read counterpart's file, never write it
+2. **Shared board.md**: Task board uses Git for concurrency — pull before edit, commit immediately after
+3. **Read before write**: Every agent reads: AGENTS.md → own agent-{name}.md → board.md on startup
+4. **Never write counterpart file**: Mutex writes prevent concurrency conflicts
+5. **Commit after each change**: Commit immediately after each atomic operation, don't batch"""
         },
         "collab_header": {
             "zh": """# COLLAB.md — Agent 实时协作状态
@@ -867,6 +893,32 @@ def get_models_by_tier(tier=None):
         return {k: v for k, v in MODEL_REGISTRY.items() if v["tier"] == tier}
     return MODEL_REGISTRY
 
+def _sanitize_agent_name(name):
+    """消毒 Agent 名称：只保留字母数字连字符下划线，防路径逃逸"""
+    import re
+    safe = re.sub(r'[^a-zA-Z0-9_\-]', '-', name)
+    safe = safe.strip('-').strip('_')
+    if not safe:
+        safe = "agent"
+    # 防目录穿越：去掉 .. 和路径分隔符
+    safe = safe.replace('..', '-').replace('/', '-').replace('\\', '-')
+    return safe[:64]  # 限制长度
+
+def _check_git_repo(target_dir):
+    """检查目标目录是否为有效的 Git 仓库"""
+    import subprocess
+    git_dir = os.path.join(target_dir, ".git")
+    if not os.path.isdir(git_dir):
+        return False, f"目录 {target_dir} 不是 Git 仓库。\n请先运行: cd {target_dir} && git init"
+    try:
+        result = subprocess.run(["git", "-C", target_dir, "rev-parse", "--is-inside-work-tree"],
+                              capture_output=True, text=True, timeout=5)
+        if result.returncode != 0:
+            return False, "Git 工作树不可用。"
+        return True, "Git 仓库就绪。"
+    except Exception as e:
+        return False, f"Git 检查失败: {e}"
+
 def fetch_latest_models():
     """从 modelscan/registry 获取最新模型列表。
     这是一个可选功能 — 仅在用户主动触发时调用。
@@ -1020,6 +1072,11 @@ def generate_agents_md(mode, agent_a, agent_b, project_name="未命名项目", l
     for i, stage in enumerate(tmpl["pipeline"]):
         stages_str += "│  " + str(i+1) + ". " + T(f"stage.{stage['id']}", lang) + " (" + stage['agent'] + ")\n"
 
+    # 根据模式选择串行/并行规则
+    is_parallel = mode in ("parallel-team", "loop-engineering", "parallel-claim")
+    rules_key = "tmpl.agents_rules_parallel" if is_parallel else "tmpl.agents_rules"
+    rules = T(rules_key, lang).replace("{name}", a_name.lower())
+
     return T("tmpl.agents_header", lang) + "\n\n" + \
            T("tmpl.agents_project_info", lang, name=project_name,
              time=datetime.now().strftime('%Y-%m-%d %H:%M'),
@@ -1028,7 +1085,7 @@ def generate_agents_md(mode, agent_a, agent_b, project_name="未命名项目", l
            T("tmpl.agents_roles", lang, a_name=a_name, a_role=a_role, a_model=a_model,
              a_duties=a_duties, b_name=b_name, b_role=b_role, b_model=b_model, b_duties=b_duties) + "\n\n" + \
            T("tmpl.agents_pipeline", lang, n=len(tmpl["pipeline"]), stages=stages_str.strip()) + "\n\n" + \
-           T("tmpl.agents_rules", lang)
+           rules
 
 
 def generate_collab_md(mode, agent_a, agent_b, pipeline_custom=None, lang="zh"):
@@ -2109,15 +2166,38 @@ class BridgeApp:
         a_name, b_name = agent_a['name'], agent_b['name']
         project_name = self.project_name.get() or os.path.basename(target) or "未命名项目"
 
+        # ── P0 修复: 安全输出到 .bridge/ 子目录 ──
+        bridge_dir = os.path.join(target, ".bridge")
+        os.makedirs(bridge_dir, exist_ok=True)
+
+        # ── P0 修复: Agent 名称消毒（防路径逃逸）──
+        for agent_key, agent_dict in [("A", agent_a), ("B", agent_b)]:
+            if agent_c and agent_key == "C":
+                agent_dict = agent_c
+            raw = agent_dict.get('name', '')
+            safe = _sanitize_agent_name(raw)
+            if safe != raw:
+                if not messagebox.askyesno("名称修正",
+                    f"Agent {agent_key} 名称 '{raw}' 包含不安全字符，已修正为 '{safe}'。\n继续？"):
+                    return
+                agent_dict['name'] = safe
+
+        # ── P0 修复: 并行模式 Git 预检 ──
+        if mode in ("parallel-team", "loop-engineering", "parallel-claim"):
+            git_ok, git_msg = _check_git_repo(target)
+            if not git_ok:
+                if not messagebox.askyesno("Git 环境不完整", git_msg + "\n\n并行模式依赖 Git 进行并发控制。\n是否继续（仅生成文档，不保证并发安全）？"):
+                    return
+
         if mode == "custom":
             pipeline = self.custom_pipeline
         else:
             pipeline = None
 
-        # 检查覆盖
+        # 检查覆盖（仅在 .bridge/ 内检查）
         check_files = ["AGENTS.md", "COLLAB.md", "README.md", "board.md",
                        f"agent-{a_name.lower()}.md", f"agent-{b_name.lower()}.md"]
-        existing = [f for f in check_files if os.path.exists(os.path.join(target, f))]
+        existing = [f for f in check_files if os.path.exists(os.path.join(bridge_dir, f))]
         if existing:
             if not messagebox.askyesno("确认覆盖",
                                         f"以下文件已存在，将被覆盖：\n" +
@@ -2146,13 +2226,13 @@ class BridgeApp:
                     all_files[f"agent-{c_name.lower()}.md"] = generate_agent_status_md(
                         c_name, agent_c['role'], f"{a_name} / {b_name}")
 
-                tasks_dir = os.path.join(target, "tasks")
-                specs_dir = os.path.join(target, "specs")
+                tasks_dir = os.path.join(bridge_dir, "tasks")
+                specs_dir = os.path.join(bridge_dir, "specs")
                 os.makedirs(tasks_dir, exist_ok=True)
                 os.makedirs(specs_dir, exist_ok=True)
                 # 写入文件
                 for name, content in all_files.items():
-                    with open(os.path.join(target, name), "w", encoding="utf-8") as f:
+                    with open(os.path.join(bridge_dir, name), "w", encoding="utf-8") as f:
                         f.write(content)
                 # 创建示例任务文件
                 with open(os.path.join(tasks_dir, "T001-example.md"), "w", encoding="utf-8") as f:
@@ -2182,10 +2262,10 @@ class BridgeApp:
                 all_files["COLLAB.md"] = generate_collab_md(mode, agent_a, agent_b, pipeline, self.lang)
                 all_files["README.md"] = generate_readme_md(mode, agent_a, agent_b, project_name, self.lang)
 
-                specs_active = os.path.join(target, "specs", "active")
+                specs_active = os.path.join(bridge_dir, "specs", "active")
                 specs_review = os.path.join(specs_active, "review")
                 specs_fix = os.path.join(specs_active, "fix-orders")
-                specs_archive = os.path.join(target, "specs", "archive")
+                specs_archive = os.path.join(bridge_dir, "specs", "archive")
 
                 spec_files = {
                     os.path.join(specs_active, "tasks.md"): generate_tasks_md(mode, self.lang),
@@ -2206,11 +2286,11 @@ class BridgeApp:
 
                 # 写入根文件
                 for name in ["AGENTS.md", "COLLAB.md", "README.md"]:
-                    with open(os.path.join(target, name), "w", encoding="utf-8") as f:
+                    with open(os.path.join(bridge_dir, name), "w", encoding="utf-8") as f:
                         f.write(all_files[name])
 
             # .gitignore
-            gitignore_path = os.path.join(target, ".gitignore")
+            gitignore_path = os.path.join(bridge_dir, ".gitignore")
             if not os.path.exists(gitignore_path):
                 with open(gitignore_path, "w", encoding="utf-8") as f:
                     f.write(T("tmpl.gitignore_content", self.lang))
