@@ -814,6 +814,9 @@ MODEL_REGISTRY = {
     "gpt-5.6-sol":      {"vendor": "OpenAI", "tier": "high",  "cost": "$$$", "notes": "旗舰 $5/$30 per MTok | 1M ctx"},
     "gpt-5.6-terra":    {"vendor": "OpenAI", "tier": "high",  "cost": "$$",  "notes": "平衡 $2.50/$15 | 1M ctx"},
     "gpt-5.6-luna":     {"vendor": "OpenAI", "tier": "mid",   "cost": "$",   "notes": "高性价比 $1/$6 | 1M ctx"},
+    "gpt-5.6-sol-pro":  {"vendor": "OpenAI", "tier": "high",  "cost": "$$$", "notes": "GPT-5.6 Sol Pro 模式"},
+    "gpt-5.6-terra-pro":{"vendor": "OpenAI", "tier": "high",  "cost": "$$",  "notes": "GPT-5.6 Terra Pro 模式"},
+    "gpt-5.6-luna-pro": {"vendor": "OpenAI", "tier": "mid",   "cost": "$",   "notes": "GPT-5.6 Luna Pro 模式"},
     "o3":               {"vendor": "OpenAI", "tier": "high",  "cost": "$$$", "notes": "推理模型"},
     "o4-mini":          {"vendor": "OpenAI", "tier": "high",  "cost": "$$",  "notes": "轻量推理"},
 
@@ -836,22 +839,20 @@ MODEL_REGISTRY = {
     "deepseek-r1":     {"vendor": "DeepSeek", "tier": "high",  "cost": "$$",  "notes": "推理模型"},
     "deepseek-r1-0528":{"vendor": "DeepSeek", "tier": "high",  "cost": "$$",  "notes": "R1 最新版"},
 
-    # ── Meta (registry 交叉验证) ──
-    "llama-4-maverick":{"vendor": "Meta",    "tier": "high",  "cost": "$",   "notes": "开源旗舰 402B MoE"},
-    "llama-4-scout":   {"vendor": "Meta",    "tier": "mid",   "cost": "$",   "notes": "开源轻量 109B"},
-
-    # ── Mistral (registry 交叉验证) ──
+    # ── Meta (OpenRouter 验证) ──
+    "meta-muse-spark-1.1": {"vendor": "Meta",    "tier": "high",  "cost": "$$",  "notes": "Muse Spark 1.1 (取代 Llama 4) | 1M ctx | agentic"},
+    # ── Mistral ──
     "mistral-large":   {"vendor": "Mistral",  "tier": "high",  "cost": "$$",  "notes": "Mistral 旗舰"},
-
-    # ── 国产模型 (registry 交叉验证, 确认在 modelscan/registry 中存在) ──
-    # ⚠️ 国产模型更新频繁, 请以 https://modelscan.io 为准
+    # ── 国产模型 (OpenRouter 验证, 2026-07-21 实时数据) ──
+    "kimi-k3":         {"vendor": "Moonshot",  "tier": "high",  "cost": "$$",  "notes": "Kimi K3 2.8T MoE | $3/$15 | 编码 SOTA"},
+    "kwaipilot-kat-coder-air":  {"vendor": "Kwaipilot","tier": "high","cost": "$", "notes": "快手 KAT-Coder-Air V2.5 | agentic coding"},
+    "kwaipilot-kat-coder-pro":  {"vendor": "Kwaipilot","tier": "high","cost": "$$","notes": "快手 KAT-Coder-Pro V2.5 | $0.74/$2.96"},
+    "meituan-longcat-2": {"vendor": "Meituan",  "tier": "high",  "cost": "$",   "notes": "LongCat 2.0 1.6T MoE | 48B active | $0.30/$1.20"},
     "qwen3-max":       {"vendor": "Alibaba",  "tier": "high",  "cost": "$$",  "notes": "通义千问旗舰"},
     "qwen3-plus":      {"vendor": "Alibaba",  "tier": "mid",   "cost": "$",   "notes": "千问中等"},
     "qwen3-turbo":     {"vendor": "Alibaba",  "tier": "low",   "cost": "$",   "notes": "千问快速"},
     "doubao-1.5-pro":  {"vendor": "ByteDance","tier": "high",  "cost": "$",   "notes": "豆包旗舰"},
     "glm-4.5":         {"vendor": "Zhipu",    "tier": "high",  "cost": "$$",  "notes": "智谱旗舰"},
-    "kimi-k2":         {"vendor": "Moonshot",  "tier": "high",  "cost": "$",   "notes": "Kimi 最新"},
-    "yi-lightning":    {"vendor": "01.AI",     "tier": "mid",   "cost": "$",   "notes": "零一万物"},
 
     # ── 本地 ──
     "local-model":     {"vendor": "Local",    "tier": "varies","cost": "$",   "notes": "本地模型 (Ollama/LM Studio)"},
