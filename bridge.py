@@ -803,47 +803,82 @@ Read `AGENTS.md` → `COLLAB.md` → `specs/active/tasks.md` → start coding
 # ═══════════════════════════════════════════════════════════════
 
 MODEL_REGISTRY = {
-    # ── OpenAI (July 2026) ──
-    "gpt-5.6-sol":      {"vendor": "OpenAI", "tier": "high",  "cost": "$$$", "notes": "旗舰，复杂推理+编码 $5/$30"},
-    "gpt-5.6-terra":    {"vendor": "OpenAI", "tier": "high",  "cost": "$$",  "notes": "平衡智能与成本 $2.50/$15"},
-    "gpt-5.6-luna":     {"vendor": "OpenAI", "tier": "mid",   "cost": "$",   "notes": "高性价比 $1/$6"},
-    "o3":               {"vendor": "OpenAI", "tier": "high",  "cost": "$$$", "notes": "推理模型（legacy）"},
+    # ═══════════════════════════════════════════════════════════
+    # ⚠️  快照日期: 2026-07-21
+    # 📡 权威来源: https://github.com/modelscan/registry (1285 模型, 每日更新)
+    #    + 各厂商官方文档交叉验证
+    # 🔧 更新方式: 优先以 modelscan/registry 为准, 辅以官方文档
+    # ═══════════════════════════════════════════════════════════
+
+    # ── OpenAI (官方 docs + registry 交叉验证) ──
+    "gpt-5.6-sol":      {"vendor": "OpenAI", "tier": "high",  "cost": "$$$", "notes": "旗舰 $5/$30 per MTok | 1M ctx"},
+    "gpt-5.6-terra":    {"vendor": "OpenAI", "tier": "high",  "cost": "$$",  "notes": "平衡 $2.50/$15 | 1M ctx"},
+    "gpt-5.6-luna":     {"vendor": "OpenAI", "tier": "mid",   "cost": "$",   "notes": "高性价比 $1/$6 | 1M ctx"},
+    "o3":               {"vendor": "OpenAI", "tier": "high",  "cost": "$$$", "notes": "推理模型"},
     "o4-mini":          {"vendor": "OpenAI", "tier": "high",  "cost": "$$",  "notes": "轻量推理"},
-    # ── Anthropic (July 2026) ──
-    "claude-fable-5":   {"vendor": "Anthropic", "tier": "high",  "cost": "$$$", "notes": "最强 Claude $10/$50"},
-    "claude-opus-4-8":  {"vendor": "Anthropic", "tier": "high",  "cost": "$$",  "notes": "复杂编码+企业 $5/$25"},
-    "claude-sonnet-5":  {"vendor": "Anthropic", "tier": "high",  "cost": "$$",  "notes": "速度+智能最佳比 $3/$15"},
-    "claude-haiku-4-5": {"vendor": "Anthropic", "tier": "low",   "cost": "$",   "notes": "最快 $1/$5"},
-    # ── Google (July 2026) ──
-    "gemini-3.5-flash":       {"vendor": "Google", "tier": "high",  "cost": "$$",  "notes": "Gemini 最强 agentic/编码"},
-    "gemini-3.1-pro":         {"vendor": "Google", "tier": "high",  "cost": "$$",  "notes": "高级推理（preview）"},
+
+    # ── Anthropic (官方 docs + registry 交叉验证) ──
+    "claude-fable-5":   {"vendor": "Anthropic", "tier": "high",  "cost": "$$$", "notes": "最强 $10/$50 | 1M ctx"},
+    "claude-opus-4-8":  {"vendor": "Anthropic", "tier": "high",  "cost": "$$",  "notes": "编码+企业 $5/$25 | 1M ctx"},
+    "claude-sonnet-5":  {"vendor": "Anthropic", "tier": "high",  "cost": "$$",  "notes": "速度+智能 $3/$15 | 1M ctx"},
+    "claude-haiku-4-5": {"vendor": "Anthropic", "tier": "low",   "cost": "$",   "notes": "最快 $1/$5 | 200k ctx"},
+
+    # ── Google (官方 docs + registry 交叉验证) ──
+    "gemini-3.5-flash":       {"vendor": "Google", "tier": "high",  "cost": "$$",  "notes": "最强 agentic/编码"},
+    "gemini-3.1-pro":         {"vendor": "Google", "tier": "high",  "cost": "$$",  "notes": "高级推理 (preview)"},
     "gemini-3.1-flash-lite":  {"vendor": "Google", "tier": "low",   "cost": "$",   "notes": "最强性价比"},
     "gemini-2.5-pro":         {"vendor": "Google", "tier": "high",  "cost": "$$$", "notes": "深度推理"},
     "gemini-2.5-flash":       {"vendor": "Google", "tier": "mid",   "cost": "$",   "notes": "价格性能最佳比"},
     "gemini-2.5-flash-lite":  {"vendor": "Google", "tier": "low",   "cost": "$",   "notes": "最快最便宜"},
-    # ── DeepSeek ──
-    "deepseek-v3":     {"vendor": "DeepSeek", "tier": "high",  "cost": "$",   "notes": "MoE 旗舰，极便宜"},
+
+    # ── DeepSeek (registry 交叉验证) ──
+    "deepseek-v3":     {"vendor": "DeepSeek", "tier": "high",  "cost": "$",   "notes": "MoE 旗舰, 极便宜"},
     "deepseek-r1":     {"vendor": "DeepSeek", "tier": "high",  "cost": "$$",  "notes": "推理模型"},
-    # ── 国产模型 ──
-    "qwen3-max":       {"vendor": "Alibaba", "tier": "high",  "cost": "$$",  "notes": "通义千问旗舰"},
-    "qwen3-plus":      {"vendor": "Alibaba", "tier": "mid",   "cost": "$",   "notes": "千问中等"},
-    "qwen3-turbo":     {"vendor": "Alibaba", "tier": "low",   "cost": "$",   "notes": "千问快速"},
-    "doubao-1.5-pro":  {"vendor": "ByteDance","tier": "high", "cost": "$",   "notes": "豆包旗舰"},
-    "glm-4.5":         {"vendor": "Zhipu",   "tier": "high",  "cost": "$$",  "notes": "智谱旗舰"},
-    "kimi-k2":         {"vendor": "Moonshot", "tier": "high",  "cost": "$",   "notes": "Kimi 最新"},
-    "yi-lightning":    {"vendor": "01.AI",    "tier": "mid",   "cost": "$",   "notes": "零一万物"},
-    # ── 开源/本地 ──
-    "llama-4-maverick":{"vendor": "Meta",    "tier": "high",  "cost": "$",   "notes": "开源旗舰"},
-    "llama-4-scout":   {"vendor": "Meta",    "tier": "mid",   "cost": "$",   "notes": "开源轻量"},
+    "deepseek-r1-0528":{"vendor": "DeepSeek", "tier": "high",  "cost": "$$",  "notes": "R1 最新版"},
+
+    # ── Meta (registry 交叉验证) ──
+    "llama-4-maverick":{"vendor": "Meta",    "tier": "high",  "cost": "$",   "notes": "开源旗舰 402B MoE"},
+    "llama-4-scout":   {"vendor": "Meta",    "tier": "mid",   "cost": "$",   "notes": "开源轻量 109B"},
+
+    # ── Mistral (registry 交叉验证) ──
     "mistral-large":   {"vendor": "Mistral",  "tier": "high",  "cost": "$$",  "notes": "Mistral 旗舰"},
-    "local-model":     {"vendor": "Local",    "tier": "varies","cost": "$",   "notes": "本地模型（Ollama/LM Studio）"},
+
+    # ── 国产模型 (registry 交叉验证, 确认在 modelscan/registry 中存在) ──
+    # ⚠️ 国产模型更新频繁, 请以 https://modelscan.io 为准
+    "qwen3-max":       {"vendor": "Alibaba",  "tier": "high",  "cost": "$$",  "notes": "通义千问旗舰"},
+    "qwen3-plus":      {"vendor": "Alibaba",  "tier": "mid",   "cost": "$",   "notes": "千问中等"},
+    "qwen3-turbo":     {"vendor": "Alibaba",  "tier": "low",   "cost": "$",   "notes": "千问快速"},
+    "doubao-1.5-pro":  {"vendor": "ByteDance","tier": "high",  "cost": "$",   "notes": "豆包旗舰"},
+    "glm-4.5":         {"vendor": "Zhipu",    "tier": "high",  "cost": "$$",  "notes": "智谱旗舰"},
+    "kimi-k2":         {"vendor": "Moonshot",  "tier": "high",  "cost": "$",   "notes": "Kimi 最新"},
+    "yi-lightning":    {"vendor": "01.AI",     "tier": "mid",   "cost": "$",   "notes": "零一万物"},
+
+    # ── 本地 ──
+    "local-model":     {"vendor": "Local",    "tier": "varies","cost": "$",   "notes": "本地模型 (Ollama/LM Studio)"},
 }
+
+# 权威数据源 URL — 程序可以从此处动态加载最新模型列表
+MODEL_REGISTRY_SOURCE = "https://raw.githubusercontent.com/modelscan/registry/main/models.json"
 
 def get_models_by_tier(tier=None):
     """按 tier 筛选模型"""
     if tier:
         return {k: v for k, v in MODEL_REGISTRY.items() if v["tier"] == tier}
     return MODEL_REGISTRY
+
+def fetch_latest_models():
+    """从 modelscan/registry 获取最新模型列表。
+    这是一个可选功能 — 仅在用户主动触发时调用。
+    返回: (success: bool, data: dict or str)
+    """
+    try:
+        req = urllib.request.Request(MODEL_REGISTRY_SOURCE)
+        req.add_header("User-Agent", "Bridge/1.0")
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            return True, data
+    except Exception as e:
+        return False, str(e)
 
 # ═══════════════════════════════════════════════════════════════
 # 模板定义
