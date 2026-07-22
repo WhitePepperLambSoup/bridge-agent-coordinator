@@ -1,0 +1,36 @@
+{
+  "protocol_version": 1,
+  "task_id": "TASK-014",
+  "attempt": 1,
+  "agent_id": "reasonix-worker",
+  "base_commit": "0123456789abcdef0123456789abcdef01234567",
+  "submission_commit": "fedcba9876543210fedcba9876543210fedcba98",
+  "changed_files": [
+    {
+      "path": "src/protocol/receipt_validator.py",
+      "change": "modified",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "path": "tests/protocol/test_receipt_validator.py",
+      "change": "added",
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  ],
+  "checks": [
+    {
+      "id": "unit-tests",
+      "status": "passed",
+      "exit_code": 0,
+      "evidence_path": "evidence/unit-tests.txt",
+      "evidence_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    }
+  ],
+  "evidence_files": [
+    "evidence/unit-tests.txt"
+  ],
+  "new_dependencies": [],
+  "migrations": [],
+  "known_failures": [],
+  "generated_at": "2026-01-01T01:00:00Z"
+}

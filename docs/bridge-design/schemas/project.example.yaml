@@ -1,0 +1,43 @@
+config_version: 1
+protocol_version: 1
+
+project:
+  id: bridge-example
+  name: Bridge Example
+  default_branch: main
+  language: zh-CN
+
+coordination:
+  workspace_mode: per_task_worktree
+  progression_policy: semi_automatic
+  confirmation_policy: balanced
+  max_parallel_tasks: 3
+  lease_ttl_seconds: 900
+  receipt_stability_ms: 750
+
+safety:
+  hard_floor_enabled: true
+  allowed_roots:
+    - .
+  never_auto_confirm:
+    - delete_outside_registered_workspace
+    - overwrite_uncommitted_user_changes
+    - push_force
+    - expose_secret
+
+validation:
+  checks:
+    - id: unit-tests
+      display_name: Unit tests
+      executable: python
+      args: ["-m", "pytest", "-q"]
+      working_directory: .
+      timeout_seconds: 300
+      output_limit_bytes: 1048576
+      required: true
+      risk_level: low
+
+budgets:
+  project_token_warning: 500000
+  default_task_token_budget: 50000
+  default_retry_budget: 2

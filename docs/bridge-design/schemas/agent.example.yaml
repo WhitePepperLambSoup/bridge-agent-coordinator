@@ -1,0 +1,38 @@
+profile_version: 1
+
+agent:
+  id: reasonix-worker
+  display_name: Reasonix Worker
+  provider: local-manual
+  model: reasonix
+  adapter: ReasonixPromptAdapter
+  enabled: true
+
+capability:
+  tier: standard
+  cost_tier: low
+  roles:
+    - implementer
+    - test_writer
+  strengths:
+    - high_volume_coding
+    - repository_search
+    - test_execution
+
+permissions:
+  can_plan: false
+  can_approve_plan: false
+  can_review: false
+  can_merge: false
+  can_run_validation: true
+  can_request_escalation: true
+
+limits:
+  max_parallel_tasks: 1
+  default_token_budget: 50000
+  default_time_budget_seconds: 7200
+  default_retry_budget: 2
+
+workspace:
+  preferred_mode: per_task_worktree
+  requires_manual_launch: true
