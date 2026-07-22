@@ -21,6 +21,7 @@ from bridgelib.routing import RouteRequest, recommend_agent
 from bridgelib.cost import CostTracker, BudgetGuard, BudgetThreshold
 from bridgelib.retry import FailureClassifier, RetryPolicy, RetryManager, EscalationDecider
 from bridgelib.context import ContextManager, ContextLayer, generate_context_summary
+from bridgelib.safety import SafetyPolicy, ConfirmationMode, HARD_FLOOR_ACTIONS
 
 
 class CoordinatorError(Exception):
@@ -76,6 +77,7 @@ class BridgeCoordinator:
         self.retry = retry_manager or RetryManager()
         self.escalation = escalation_decider or EscalationDecider()
         self.context = context_manager or ContextManager()
+        self.safety = SafetyPolicy(mode=ConfirmationMode.BALANCED)
 
         # 从数据库恢复运行时状态（支持重启恢复）
         self._hydrate_from_db()
@@ -759,7 +761,61 @@ class BridgeCoordinator:
         """使任务的上下文缓存失效。"""
         self.context.invalidate(task_id)
 
-    # ── QA & Validation ───────────────────────────────────
+    # ── Git Repository Adapter ─────────────────────────────
+
+    def get_git_adapter(self) -> object:
+        """获取 Git 仓库适配器（惰性创建）。"""
+        from bridgelib.git_adapter import GitRepositoryAdapter
+        return GitRepositoryAdapter(self.db.get_project(self._active_project_id or "")
+                                   .get("root_path", ".") if hasattr(self, '_active_project_id') else ".")
+
+    def check_git_repo(self, project_id: str) -> dict:
+        """检查项目的 Git 仓库状态。"""
+        from bridgelib.git_adapter import GitRepositoryAdapter
+        proj = self.db.get_project(project_id)
+        if not proj:
+            raise CoordinatorError(f"Project {project_id} not found")
+        adapter = GitRepositoryAdapter(proj["root_path"])
+        status = adapter.check_repo()
+        return {
+            "is_repo": status.is_repo,
+            "current_branch": status.current_branch,
+            "head_commit": status.head_commit,
+            "is_dirty": status.is_dirty,
+            "has_untracked": status.has_untracked,
+        }
+
+    def verify_commit_exists(self, project_id: str, commit: str) -> bool:
+        """验证 commit 是否存在于仓库中。"""
+        from bridgelib.git_adapter import GitRepositoryAdapter
+        proj = self.db.get_project(project_id)
+        if not proj:
+            return False
+        adapter = GitRepositoryAdapter(proj["root_path"])
+        return adapter.commit_exists(commit)
+
+    # ── Safety Policy ──────────────────────────────────────
+
+    def set_safety_mode(self, mode: str):
+        """设置安全模式。"""
+        try:
+            self.safety.mode = ConfirmationMode(mode)
+        except ValueError:
+            raise CoordinatorError(f"Invalid safety mode: {mode}")
+
+    def check_safety(self, action_id: str) -> dict:
+        """检查操作的安全策略。"""
+        return {
+            "action": action_id,
+            "requires_confirmation": self.safety.requires_confirmation(action_id),
+            "is_hard_floor": self.safety.is_hard_floor(action_id),
+            "can_automate": self.safety.can_automate(action_id),
+            "policy": self.safety.get_policy(action_id).value,
+        }
+
+    def is_hard_floor_blocked(self, action_id: str) -> bool:
+        """检查是否触及不可关闭的安全底线（应完全拒绝）。"""
+        return action_id in HARD_FLOOR_ACTIONS
 
     def run_validation(self, task_id: str, checks: list[dict],
                        project_root: str = "") -> list[dict]:
