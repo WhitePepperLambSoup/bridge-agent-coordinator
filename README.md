@@ -1,26 +1,35 @@
-# Bridge — AI Agent Collaboration Hub
+# Bridge — Local Multi-Agent Coordinator
 
 [中文](README.zh-CN.md) | English
 
-A GUI tool that generates AI agent bridge workflow `.md` files in your project folder,
-enabling two AI agents (e.g., GPT + Reasonix) to collaborate efficiently through the filesystem.
+A local control plane that coordinates multiple manually-opened AI agents through
+structured task packages, receipts, validation gates, and Git worktree isolation.
+Bridge does NOT call models directly — it generates task materials for agents that
+the user manually opens and instructs.
 
-## Run
+## Quick Start
 
 ```bash
-python bridge.py
+pip install -e .
+python bridge.py           # Launch GUI
+python -m pytest tests/ -v # Run all tests
 ```
 
-Zero dependencies — Python 3.8+ standard library only.
+Requirements: Python 3.11+, Git 2.40+, SQLite (stdlib), tkinter (stdlib).
 
 ## Features
 
+- **Dynamic Agent profiles**: 2–8 agents with per-agent capabilities, roles, costs, and permissions
+- **Structured task protocol**: Manifest, task packages, receipts, artifacts with schema validation
+- **17-state task machine**: Draft → Planning → Ready → Assigned → InProgress → Submitted → Validating → Approved → MergeQueued → Merging → Done (with RevisionRequired, Escalated, Conflict, Blocked, Stale, Cancelled branches)
+- **Lease management**: File/path/global resource leases with conflict detection
+- **Review system**: Independent reviewer assignment, verdict tracking, escalation paths
+- **Merge queue**: Serial FIFO integration with conflict handling
+- **Validation engine**: Declarative checks with timeout, cancellation, evidence hashing
+- **Operation log**: Git operation consistency with crash recovery
+- **SQLite authoritative state**: All runtime state persisted and auditable
 - **7 collaboration modes**: Architect-Engineer / Peer-Review / Spec-Driven / Quick-Start / Parallel-Team / Loop-Engineering / Parallel-Claim
-- **🌐 Bilingual**: Full Chinese + English UI, switch with one click. Generated `.md` files follow the selected language.
-- **4-tab GUI**: Project Setup → Agent Config → LLM Assist → Pipeline Editor
-- **One-click generation**: Produces AGENTS.md, COLLAB.md (or agent-specific status files for parallel mode), specs/, and more in your target folder
-- **Optional LLM integration**: OpenAI-compatible API to analyze requirements and auto-fill configuration
-- **Pipeline editor**: Add, remove, reorder, and edit stages for custom pipeline flows
+- **Bilingual**: Full Chinese + English UI and generated documents
 
 ## Collaboration Modes
 

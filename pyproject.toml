@@ -1,0 +1,15 @@
+[project]
+name = "bridge"
+version = "0.1.0"
+description = "本地多 Agent 协调器"
+requires-python = ">=3.11"
+dependencies = [
+    "pyyaml>=6.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = ["-v", "--tb=short", "-p", "no:cacheprovider"]
