@@ -246,6 +246,17 @@ def run_check(check: ValidationCheck, project_root: str = "",
         result.evidence_hash = _compute_evidence_hash(
             check.evidence_paths, resolved_wd
         )
+        # 证据文件缺失时标记为 FAILED（而非静默通过）
+        missing_evidence = False
+        for ep in check.evidence_paths:
+            path = os.path.join(resolved_wd, ep)
+            if not os.path.isfile(path):
+                missing_evidence = True
+                break
+        if missing_evidence and check.required:
+            result.status = ValidationStatus.FAILED
+            if not result.error_message:
+                result.error_message = f"Required evidence files missing"
 
     return result
 

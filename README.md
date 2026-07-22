@@ -69,7 +69,7 @@ Three rules prevent conflicts:
 
 ```
 bridge/
-├── bridge.py          # Main program (single file, zero deps)
+├── bridge.py          # Application entry point
 ├── README.md          # This file (English)
 ├── README.zh-CN.md    # Chinese version
 └── .gitignore

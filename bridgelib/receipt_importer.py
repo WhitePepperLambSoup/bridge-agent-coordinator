@@ -10,7 +10,7 @@ import threading
 import logging
 from datetime import datetime, timezone
 
-from bridgelib.protocol import parse_receipt, validate_receipt, Manifest, ProtocolError
+from bridgelib.protocol import parse_receipt, validate_receipt, ProtocolError
 
 logger = logging.getLogger(__name__)
 
@@ -32,9 +32,11 @@ class ReceiptImporter:
         self._imported_hashes: set[str] = set()
         self._lock = threading.Lock()
 
-    def scan_and_import(self, task_dir: str, manifest: Manifest,
-                        task_id: str, attempt: int, lease_id: str,
-                        agent_id: str) -> dict | None:
+    def scan_and_import(self, task_dir: str, task_id: str, attempt: int,
+                        lease_id: str, agent_id: str,
+                        base_commit: str = "", branch: str = "",
+                        allowed_paths: list | None = None,
+                        forbidden_paths: list | None = None) -> dict | None:
         """扫描任务目录中的回执文件，稳定后导入。返回导入结果或 None。"""
         receipt_path = os.path.join(task_dir, "RECEIPT.md")
         if not os.path.isfile(receipt_path):
@@ -78,10 +80,13 @@ class ReceiptImporter:
         except ProtocolError as e:
             raise ReceiptImportError(f"Failed to parse receipt: {e}")
 
-        # 交叉验证
+        # 交叉验证 — 使用正确的参数名 expected_task_id/expected_attempt/expected_lease_id/expected_agent_id
         errors = validate_receipt(
-            receipt, task_id=task_id, attempt=attempt,
-            lease_id=lease_id, agent_id=agent_id,
+            receipt,
+            expected_task_id=task_id,
+            expected_attempt=attempt,
+            expected_lease_id=lease_id,
+            expected_agent_id=agent_id,
         )
         if errors:
             raise ReceiptImportError(
@@ -89,26 +94,28 @@ class ReceiptImporter:
             )
 
         # 持久化到数据库
+        # receipt.status 是普通字符串，不是 Enum — 不需要 .value
         receipt_id = f"rcpt-{content_hash[:16]}"
         now = datetime.now(timezone.utc).isoformat()
+        # attempt_id 使用 NULL 避免外键约束（attempt 记录由协调器单独管理）
         self.db.conn.execute(
             """INSERT INTO receipts (id, task_id, attempt_id, agent_id,
                receipt_path, content_hash, status, import_result, created_at)
-               VALUES (?,?,?,?,?,?,'imported',?,?)""",
-            (receipt_id, task_id, str(attempt), agent_id,
+               VALUES (?,?,NULL,?,?,?,'imported',?,?)""",
+            (receipt_id, task_id, agent_id,
              receipt_path, content_hash,
-             f"status={receipt.status.value}", now),
+             f"status={receipt.status}", now),
         )
         self.db.conn.commit()
 
         with self._lock:
             self._imported_hashes.add(content_hash)
 
-        logger.info(f"Receipt imported: {receipt_id} status={receipt.status.value}")
+        logger.info(f"Receipt imported: {receipt_id} status={receipt.status}")
         return {
             "receipt_id": receipt_id,
             "content_hash": content_hash,
-            "status": receipt.status.value,
+            "status": receipt.status,
             "submission_commit": receipt.submission_commit,
         }
 

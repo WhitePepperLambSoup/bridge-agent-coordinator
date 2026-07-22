@@ -82,10 +82,10 @@ class TestRouting:
 class TestCostTracking:
     def test_record_and_check_cost(self, coordinator, env):
         pid, planner, implementer, reviewer, gid, tid = env
-        coordinator.record_task_cost(tid, implementer, input_tokens=1000, output_tokens=500, source="test")
+        coordinator.record_task_cost(tid, implementer, input_tokens=500, output_tokens=200, source="test")
         result = coordinator.check_budget(tid, token_budget=3000)
         assert result["threshold"] == "ok"
-        assert result["total_tokens"] == 1500
+        assert result["total_tokens"] == 700
 
 
 class TestRetry:
@@ -140,10 +140,15 @@ class TestArtifactsValidation:
         artifacts_path = os.path.join(d, "ARTIFACTS.json")
         with open(artifacts_path, "w") as f:
             json.dump({
+                "protocol_version": 1,
                 "task_id": tid,
+                "attempt": 1,
                 "agent_id": implementer,
+                "base_commit": "abc123",
+                "submission_commit": "def456",
                 "changed_files": [{"path": "src/main.py", "change": "modified"}],
                 "checks": [],
+                "generated_at": "",
             }, f)
         result = coordinator.validate_artifacts(tid, artifacts_path)
         assert result["valid"] is True
@@ -162,10 +167,15 @@ class TestArtifactsValidation:
         artifacts_path = os.path.join(d, "ARTIFACTS.json")
         with open(artifacts_path, "w") as f:
             json.dump({
+                "protocol_version": 1,
                 "task_id": tid,
+                "attempt": 1,
                 "agent_id": implementer,
+                "base_commit": "abc123",
+                "submission_commit": "def456",
                 "changed_files": [{"path": "secret/passwords.txt", "change": "modified"}],
                 "checks": [],
+                "generated_at": "",
             }, f)
         result = coordinator.validate_artifacts(tid, artifacts_path)
         assert result["valid"] is False

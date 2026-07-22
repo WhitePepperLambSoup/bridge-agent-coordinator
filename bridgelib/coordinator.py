@@ -77,6 +77,77 @@ class BridgeCoordinator:
         self.escalation = escalation_decider or EscalationDecider()
         self.context = context_manager or ContextManager()
 
+        # 从数据库恢复运行时状态（支持重启恢复）
+        self._hydrate_from_db()
+
+    def _hydrate_from_db(self):
+        """从数据库恢复租约、审查、合并队列到内存管理器。"""
+        # ── 恢复租约 ──
+        active_leases = self.db.list_active_leases()
+        for row in active_leases:
+            lease = Lease(
+                lease_id=row["id"],
+                task_id=row["task_id"],
+                agent_id=row["agent_id"],
+                attempt_id=row.get("attempt_id") or "",
+                resource_type=row.get("resource_type", "task"),
+                resource_path=row.get("resource_path", ""),
+                status=row.get("status", "active"),
+            )
+            self.leases._leases[lease.lease_id] = lease
+
+        # ── 恢复审查 ──
+        pending_reviews = self.db.list_pending_reviews()
+        for row in pending_reviews:
+            req = ReviewRequest(
+                request_id=row["id"],
+                task_id=row["task_id"],
+                reviewer_agent_id=row["reviewer_agent_id"],
+                review_package=ReviewPackage(task_id=row["task_id"], title=""),
+            )
+            self.reviews._requests[req.request_id] = req
+            self.reviews._by_task.setdefault(req.task_id, []).append(req.request_id)
+
+        # ── 恢复已完成审查结果 ──
+        try:
+            all_reviews = self.db.conn.execute(
+                "SELECT * FROM reviews WHERE verdict != 'pending'"
+            ).fetchall()
+            for row in all_reviews:
+                rid = row["id"]
+                verdict_str = row["verdict"]
+                try:
+                    verdict = ReviewVerdict(verdict_str)
+                except ValueError:
+                    verdict = ReviewVerdict.APPROVED
+                result = ReviewResult(
+                    request_id=rid,
+                    verdict=verdict,
+                    summary=row.get("issues_json", ""),
+                    fix_task_id=row.get("fix_task_id"),
+                    completed_at=row.get("completed_at", ""),
+                )
+                self.reviews._results[rid] = result
+        except Exception:
+            pass
+
+        # ── 恢复合并队列 ──
+        merge_rows = self.db.list_queued_merges()
+        for row in merge_rows:
+            entry = MergeEntry(
+                entry_id=row["id"],
+                task_id=row["task_id"],
+                target_branch=row.get("target_branch", "main"),
+                candidate_commit=row.get("candidate_commit", ""),
+                queue_position=row.get("queue_position", 0),
+                status=row.get("status", "queued"),
+                result=row.get("result", ""),
+            )
+            self.merge._entries[entry.entry_id] = entry
+            self.merge._next_position = max(
+                self.merge._next_position, entry.queue_position + 1
+            )
+
     # ── Project ───────────────────────────────────────────
 
     def init_project(self, name: str, root_path: str, language: str = "zh-CN",
@@ -126,7 +197,20 @@ class BridgeCoordinator:
         goal = self.db.get_goal(goal_id)
         if not goal:
             raise CoordinatorError(f"Goal {goal_id} not found")
-        tid = self.db.create_task(goal_id=goal_id, title=title, **kwargs)
+
+        # 强制任务继承 goal 的项目
+        project_id = goal["project_id"]
+        if kwargs.get("project_id") and kwargs["project_id"] != project_id:
+            raise CoordinatorError(
+                f"Task project_id ({kwargs['project_id']}) must match "
+                f"goal project_id ({project_id})"
+            )
+
+        tid = self.db.create_task(
+            goal_id=goal_id, title=title,
+            project_id=project_id,  # 强制使用 goal 的 project_id
+            **{k: v for k, v in kwargs.items() if k != "project_id"},
+        )
         self.db.write_event(
             event_type="TaskCreated", actor_type="user", actor_id="user",
             project_id=goal["project_id"], task_id=tid,
@@ -336,13 +420,19 @@ class BridgeCoordinator:
                     f"of task {task_id}"
                 )
 
-        # 防止同一任务已有活跃租约时重复获取
+        # 防止同一任务已有活跃租约时重复获取（检查过期时间）
+        from datetime import datetime, timezone as tz
         existing_leases = self.db.list_leases_by_task(task_id)
+        now_utc = datetime.now(tz.utc).isoformat()
         for l in existing_leases:
             if l["status"] == "active":
-                raise CoordinatorError(
-                    f"Task {task_id} already has an active lease ({l['id']})"
-                )
+                expires = l.get("expires_at", "")
+                if expires and expires > now_utc:
+                    raise CoordinatorError(
+                        f"Task {task_id} already has an active lease ({l['id']}) "
+                        f"expiring at {expires}"
+                    )
+                # 过期租约：不阻止新获取
 
         # 通过内存管理器获取租约（含路径冲突检查）
         lease = self.leases.acquire(
@@ -350,12 +440,19 @@ class BridgeCoordinator:
             resource_path=resource_path, ttl_seconds=ttl_seconds,
         )
 
-        # 持久化到数据库
-        self.db.create_lease(
-            lease_id=lease.lease_id, task_id=task_id, agent_id=agent_id,
-            resource_type=resource_type, resource_path=resource_path,
-            ttl_seconds=ttl_seconds,
-        )
+        # 持久化到数据库（失败时回滚内存租约）
+        try:
+            self.db.create_lease(
+                lease_id=lease.lease_id, task_id=task_id, agent_id=agent_id,
+                resource_type=resource_type, resource_path=resource_path,
+                ttl_seconds=ttl_seconds,
+            )
+        except Exception:
+            # DB 失败 → 回滚内存中的租约
+            self.leases._leases.pop(lease.lease_id, None)
+            raise CoordinatorError(
+                f"Failed to persist lease {lease.lease_id} to database"
+            )
 
         self.db.write_event(
             event_type="LeaseAcquired", actor_type="system", actor_id="coordinator",
@@ -591,15 +688,18 @@ class BridgeCoordinator:
         self.db.conn.commit()
 
     def check_budget(self, task_id: str, token_budget: int = 50000) -> dict:
-        """检查预算状态。"""
+        """检查预算状态。使用传入的 token_budget 创建临时 BudgetGuard。"""
         task_costs = self.costs.records_by_task(task_id)
         total = sum(r.input_tokens + r.output_tokens for r in task_costs)
-        threshold = self.budget.check(total, 0.0)
+        # 使用传入的预算参数创建正确的 BudgetGuard
+        from bridgelib.cost import BudgetGuard as BG
+        guard = BG(task_token_budget=token_budget)
+        threshold = guard.check(total, 0.0)
         return {
             "threshold": threshold.value,
             "total_tokens": total,
             "budget": token_budget,
-            "message": self.budget.get_status_message(total, 0.0),
+            "message": guard.get_status_message(total, 0.0),
         }
 
     # ── Retry & Escalation ────────────────────────────────
@@ -652,6 +752,59 @@ class BridgeCoordinator:
 
     # ── QA & Validation ───────────────────────────────────
 
+    def run_validation(self, task_id: str, checks: list[dict],
+                       project_root: str = "") -> list[dict]:
+        """运行验证检查并持久化结果到数据库。
+        
+        checks: [{"check_id":"unit","executable":"python","args":["-m","pytest"],...}, ...]
+        返回每个检查的结果字典列表。
+        """
+        from bridgelib.validation import ValidationCheck, ValidationExecutor
+        from datetime import datetime, timezone
+
+        task = self.db.get_task(task_id)
+        if task is None:
+            raise CoordinatorError(f"Task {task_id} not found")
+
+        validation_checks = []
+        for c in checks:
+            vc = ValidationCheck(
+                check_id=c["check_id"],
+                executable=c.get("executable", "echo"),
+                args=c.get("args", []),
+                display_name=c.get("display_name", c["check_id"]),
+                working_directory=c.get("working_directory", "."),
+                timeout_seconds=c.get("timeout_seconds", 300),
+                required=c.get("required", True),
+                evidence_paths=c.get("evidence_paths", []),
+            )
+            validation_checks.append(vc)
+
+        executor = ValidationExecutor(project_root=project_root or ".")
+        results = executor.execute_all(validation_checks)
+
+        # 持久化每个结果
+        persisted = []
+        for r in results:
+            vid = f"val-{task_id}-{r.check_id}-{datetime.now(timezone.utc).timestamp()}"
+            now = datetime.now(timezone.utc).isoformat()
+            self.db.conn.execute(
+                """INSERT INTO validations (id, task_id, check_id, command_json,
+                   exit_code, status, output_summary, evidence_path, created_at,
+                   started_at, completed_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                (vid, task_id, r.check_id,
+                 json.dumps({"executable": "", "args": []}),
+                 r.exit_code, r.status.value,
+                 (r.stdout[:500] if r.stdout else ""),
+                 r.evidence_hash,
+                 now, now, now),
+            )
+            self.db.conn.commit()
+            persisted.append(r.to_dict())
+
+        return persisted
+
     def run_qa_on_generated(self, content: str, base_dir: str = ".") -> list[dict]:
         """对生成的 Markdown 内容运行 QA 检查。"""
         from bridgelib.reports import run_qa_checks
@@ -663,7 +816,7 @@ class BridgeCoordinator:
         } for r in results]
 
     def validate_artifacts(self, task_id: str, artifacts_path: str) -> dict:
-        """交叉验证 ARTIFACTS.json 与数据库记录的一致性。"""
+        """交叉验证 ARTIFACTS.json — 使用协议级验证 + forbidden paths 检查。"""
         import os
         task = self.db.get_task(task_id)
         if task is None:
@@ -678,24 +831,27 @@ class BridgeCoordinator:
         except (json.JSONDecodeError, OSError) as e:
             return {"valid": False, "error": f"Cannot read artifacts: {e}"}
 
-        issues = []
+        # 使用协议级 validate_artifacts 进行完整字段检查
+        from bridgelib.protocol import validate_artifacts as protocol_validate
+        issues = protocol_validate(data)
 
-        # 验证 task_id 一致
+        # 补充额外交叉验证
         if data.get("task_id") != task_id:
             issues.append(f"task_id mismatch: {data.get('task_id')} vs {task_id}")
-
-        # 验证 agent_id 与 owner 一致
         if data.get("agent_id") != task.get("owner_agent_id"):
             issues.append(f"agent_id mismatch: {data.get('agent_id')} vs {task.get('owner_agent_id')}")
 
-        # 验证 changed_files 在 allowed_paths 内
+        # 使用 forbidden paths 检查（之前写死为 []）
         allowed = json.loads(task.get("allowed_paths_json", "[]") or "[]")
+        forbidden = json.loads(task.get("forbidden_paths_json", "[]") or "[]")
         for f in data.get("changed_files", []):
             path = f.get("path", f) if isinstance(f, dict) else f
-            if not is_within_scope(path, allowed, []):
+            if forbidden and is_within_scope(path, [], forbidden):
+                issues.append(f"File in forbidden scope: {path}")
+            elif not is_within_scope(path, allowed, forbidden):
                 issues.append(f"File outside allowed scope: {path}")
 
-        # 验证 checks 与 validations 表一致
+        # 验证 checks 与 validations 表交叉
         db_validations = self.db.list_validations_by_task(task_id)
         db_check_ids = {v.get("check_id") for v in db_validations}
         for check in data.get("checks", []):
@@ -715,21 +871,18 @@ class BridgeCoordinator:
                        lease_id: str, agent_id: str) -> dict | None:
         """导入任务目录中的回执（稳定窗口+哈希去重+交叉验证）。"""
         from bridgelib.receipt_importer import ReceiptImporter
-        from bridgelib.protocol import Manifest
 
-        manifest = Manifest(
-            task_id=task_id,
-            attempt=attempt,
-            lease_id=lease_id,
-            agent_id=agent_id,
-            base_commit="",
-            branch="",
-            allowed_paths=[],
-            forbidden_paths=[],
-        )
+        task = self.db.get_task(task_id)
+        if task is None:
+            raise CoordinatorError(f"Task {task_id} not found")
+
+        allowed = json.loads(task.get("allowed_paths_json", "[]") or "[]")
+        forbidden = json.loads(task.get("forbidden_paths_json", "[]") or "[]")
+
         importer = ReceiptImporter(self.db)
         return importer.scan_and_import(
-            task_dir, manifest, task_id, attempt, lease_id, agent_id
+            task_dir, task_id, attempt, lease_id, agent_id,
+            allowed_paths=allowed, forbidden_paths=forbidden,
         )
 
     # ── Transition Validators ────────────────────────────
@@ -748,7 +901,7 @@ class BridgeCoordinator:
             )
 
     def _validate_task_approved(self, task: dict):
-        """Validating→Approved：检查验证结果和审查结果，不仅仅是验收标准存在性。"""
+        """Validating→Approved：逐个 required check 必须有 PASSED 验证结果。"""
         tid = task["id"]
 
         # 1. 验收标准必须存在
@@ -758,16 +911,32 @@ class BridgeCoordinator:
                 "Task must have acceptance_criteria before approval"
             )
 
-        # 2. 必须有至少一次 PASSED 验证结果（来自数据库的 validations 表）
+        # 2. 每个 required check 必须有当前 attempt 的 PASSED 结果
+        required_checks = json.loads(task.get("required_checks_json", "[]") or "[]")
         validations = self.db.list_validations_by_task(tid)
-        passed = [v for v in validations if v.get("status") == "passed"]
-        if not passed:
-            raise CoordinatorError(
-                f"Task {tid} must have at least one PASSED validation before approval. "
-                f"Found {len(validations)} validation(s), 0 passed."
-            )
 
-        # 3. 必须有审查结果且为 APPROVED（来自数据库的 reviews 表）
+        if required_checks:
+            passed_check_ids = {
+                v["check_id"] for v in validations
+                if v.get("status") == "passed"
+            }
+            missing = [c for c in required_checks if c not in passed_check_ids]
+            if missing:
+                raise CoordinatorError(
+                    f"Task {tid} requires all checks to pass before approval. "
+                    f"Missing PASSED results for: {', '.join(missing)}. "
+                    f"Required: {required_checks}, Passed: {list(passed_check_ids)}"
+                )
+        else:
+            # 如果没有定义 required checks，至少需要一次 PASSED 验证
+            passed = [v for v in validations if v.get("status") == "passed"]
+            if not passed:
+                raise CoordinatorError(
+                    f"Task {tid} must have at least one PASSED validation before approval. "
+                    f"Found {len(validations)} validation(s), 0 passed."
+                )
+
+        # 3. 必须有审查结果且为 APPROVED
         reviews = self.db.list_reviews_by_task(tid)
         approved_reviews = [r for r in reviews if r.get("verdict") == "approved"]
         if not approved_reviews:
