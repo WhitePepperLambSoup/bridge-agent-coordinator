@@ -581,9 +581,18 @@ class BridgeCoordinator:
             target=f"entry:{entry_id}",
         )
         self.ops.record(op)
+        # 持久化操作日志到数据库
+        self.db.create_operation(
+            op_id=op.idempotency_key,
+            op_type="merge",
+            idempotency_key=op.idempotency_key,
+            target=op.target,
+            status="prepared",
+        )
         try:
             entry = self.merge.start_merge(entry_id)
-            # 操作仅记录"已准备"；完成在 complete_merge 时标记
+            # 更新数据库状态为 merging
+            self.db.update_merge_entry(entry_id, MergeStatus.MERGING)
             return entry
         except Exception as e:
             op.mark_failed(repr(e))

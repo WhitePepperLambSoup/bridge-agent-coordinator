@@ -119,8 +119,13 @@ class ReceiptImporter:
             "submission_commit": receipt.submission_commit,
         }
 
-    def rescan_on_startup(self, task_dirs: list[str]) -> list[dict]:
-        """启动时补扫未导入回执。"""
+    def rescan_on_startup(self, task_dirs: list[str],
+                          task_map: dict | None = None) -> list[dict]:
+        """启动时补扫未导入回执并实际导入。
+        
+        task_map: {directory: {"task_id":..., "attempt":..., "lease_id":..., "agent_id":...}}
+        如果提供，对未导入回执执行 scan_and_import。
+        """
         results = []
         for d in task_dirs:
             receipt_path = os.path.join(d, "RECEIPT.md")
@@ -134,6 +139,30 @@ class ReceiptImporter:
                     "SELECT id FROM receipts WHERE content_hash = ?", (content_hash,)
                 ).fetchone()
                 if not existing:
+                    # 如果有任务映射，尝试实际导入
+                    if task_map and d in task_map:
+                        info = task_map[d]
+                        try:
+                            imported = self.scan_and_import(
+                                d, info["task_id"], info.get("attempt", 1),
+                                info.get("lease_id", ""), info.get("agent_id", ""),
+                            )
+                            if imported:
+                                results.append({
+                                    "directory": d,
+                                    "content_hash": content_hash[:16],
+                                    "status": "imported",
+                                    "receipt_id": imported.get("receipt_id", ""),
+                                })
+                                continue
+                        except ReceiptImportError as e:
+                            results.append({
+                                "directory": d,
+                                "content_hash": content_hash[:16],
+                                "status": "import_failed",
+                                "error": str(e),
+                            })
+                            continue
                     results.append({
                         "directory": d,
                         "content_hash": content_hash[:16],
