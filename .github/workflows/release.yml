@@ -1,0 +1,91 @@
+name: Windows release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install -e ".[dev]"
+
+      - name: Run tests
+        run: python -m pytest -q
+
+      - name: Build executable
+        run: python -m PyInstaller --clean --noconfirm bridge.spec
+
+      - name: Smoke test executable
+        shell: pwsh
+        run: |
+          $existingIds = @(Get-Process -Name Bridge -ErrorAction SilentlyContinue |
+            Select-Object -ExpandProperty Id)
+          $launcher = Start-Process -FilePath "dist\Bridge.exe" -PassThru
+          $window = $null
+
+          for ($attempt = 0; $attempt -lt 30; $attempt++) {
+            Start-Sleep -Milliseconds 500
+            $window = Get-Process -Name Bridge -ErrorAction SilentlyContinue |
+              Where-Object {
+                $_.Id -notin $existingIds -and $_.MainWindowHandle -ne 0
+              } |
+              Select-Object -First 1
+            if ($window) {
+              break
+            }
+          }
+
+          $started = @(Get-Process -Name Bridge -ErrorAction SilentlyContinue |
+            Where-Object { $_.Id -notin $existingIds })
+          if (-not $window) {
+            $started | Stop-Process -Force -ErrorAction SilentlyContinue
+            throw "Bridge.exe did not create its main window"
+          }
+          $started | Stop-Process -Force -ErrorAction SilentlyContinue
+
+      - name: Package release assets
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path release -Force | Out-Null
+          Copy-Item "dist\Bridge.exe" "release\Bridge.exe"
+          Compress-Archive -Path "dist\Bridge.exe" -DestinationPath "release\Bridge-windows-x64.zip"
+          $exeHash = (Get-FileHash "release\Bridge.exe" -Algorithm SHA256).Hash.ToLowerInvariant()
+          $zipHash = (Get-FileHash "release\Bridge-windows-x64.zip" -Algorithm SHA256).Hash.ToLowerInvariant()
+          @(
+            "$exeHash  Bridge.exe",
+            "$zipHash  Bridge-windows-x64.zip"
+          ) | Set-Content "release\SHA256SUMS.txt" -Encoding ascii
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Bridge-${{ github.ref_name }}-windows-x64
+          path: release/*
+          if-no-files-found: error
+
+      - name: Create GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create $env:GITHUB_REF_NAME `
+            "release\Bridge.exe" `
+            "release\Bridge-windows-x64.zip" `
+            "release\SHA256SUMS.txt" `
+            --title "Bridge $env:GITHUB_REF_NAME" `
+            --generate-notes `
+            --notes "Windows x64 standalone build. No Python installation is required. This executable is not code-signed; verify SHA256SUMS.txt before running."
