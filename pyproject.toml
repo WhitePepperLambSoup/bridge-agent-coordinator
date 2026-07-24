@@ -1,0 +1,50 @@
+[project]
+name = "bridge-agent-coordinator"
+version = "0.1.0"
+description = "Local coordinator for manually operated AI coding agents"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Bridge contributors" }]
+requires-python = ">=3.11"
+keywords = ["ai-agents", "coordination", "git-worktree", "code-review", "desktop"]
+dependencies = [
+    "pyyaml>=6.0",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Operating System :: Microsoft :: Windows",
+    "Topic :: Software Development :: Version Control :: Git",
+]
+
+[project.optional-dependencies]
+dev = [
+    "build>=1.2",
+    "pytest>=8.0",
+    "twine>=5.0",
+]
+
+[project.gui-scripts]
+bridge-gui = "bridgelib.gui:main"
+
+[build-system]
+requires = ["setuptools>=77.0.3"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = ["bridge"]
+
+[tool.setuptools.packages.find]
+include = ["bridgelib*"]
+exclude = ["tests*", "test_repo*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = ["-v", "--tb=short", "-p", "no:cacheprovider"]
