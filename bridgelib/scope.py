@@ -1,6 +1,7 @@
-"""Bridge 路径范围检查 — 允许/禁止路径、glob 匹配、越界检测。
+"""Bridge path scope checks for allowed paths, forbidden paths, and glob matching.
 
-设计参考：docs/bridge-design/06-git-worktree-and-conflicts.md §文件与全局资源租约
+Design reference: docs/bridge-design/06-git-worktree-and-conflicts.md,
+file and global resource leases
 """
 
 import os
@@ -10,7 +11,7 @@ from dataclasses import dataclass
 
 
 class ScopeViolation(Exception):
-    """范围违规"""
+    """Path scope violation."""
     def __init__(self, path: str, reason: str):
         self.path = path
         self.reason = reason
@@ -20,7 +21,7 @@ class ScopeViolation(Exception):
 # ── Path Normalization ────────────────────────────────────
 
 def normalize_path(path: str) -> str:
-    """规范化路径。保留绝对路径前缀，移除 ..，统一分隔符。"""
+    """Normalize a path while preserving absolute prefixes and unifying separators."""
     is_abs = os.path.isabs(path) or path.startswith("/")
     normalized = os.path.normpath(path)
     normalized = normalized.replace("\\", "/")
@@ -32,7 +33,7 @@ def normalize_path(path: str) -> str:
 # ── Glob Matching ─────────────────────────────────────────
 
 def _glob_to_regex(pattern: str) -> re.Pattern:
-    """将 glob 模式转换为正则表达式。"""
+    """Convert a glob pattern to a regular expression."""
     parts = pattern.replace("\\", "/").split("/")
     regex_parts = []
     for i, part in enumerate(parts):
@@ -56,7 +57,7 @@ def _glob_to_regex(pattern: str) -> re.Pattern:
 
 
 def matches_glob(path: str, pattern: str) -> bool:
-    """检查路径是否匹配 glob 模式。"""
+    """Check whether a path matches a glob pattern."""
     norm_path = normalize_path(path)
     norm_pattern = pattern.replace("\\", "/")
     regex = _glob_to_regex(norm_pattern)
@@ -67,7 +68,7 @@ def matches_glob(path: str, pattern: str) -> bool:
 
 @dataclass
 class ScopeChecker:
-    """路径范围检查器"""
+    """Path scope checker."""
     allowed: list[str]
     forbidden: list[str]
 

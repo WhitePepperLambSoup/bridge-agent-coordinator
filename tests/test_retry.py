@@ -1,4 +1,4 @@
-"""Phase 5.2 测试 — 重试策略与升级降级"""
+"""Phase 5.2 tests for retry, escalation, and fallback policies."""
 
 import pytest
 from bridgelib.retry import (
@@ -12,7 +12,7 @@ from bridgelib.retry import (
 
 
 class TestFailureClassifier:
-    """失败分类"""
+    """Test failure classification."""
 
     def test_classify_test_failure(self):
         cat = FailureClassifier.classify(
@@ -48,18 +48,18 @@ class TestFailureClassifier:
 
 
 class TestRetryPolicy:
-    """重试策略"""
+    """Test retry policies."""
 
     def test_default_policy(self):
         policy = RetryPolicy(max_retries=2)
         assert policy.max_retries == 2
-        assert policy.can_retry(0)  # 还没开始
-        assert policy.can_retry(1)  # 第一次重试
-        assert not policy.can_retry(2)  # 已用完
+        assert policy.can_retry(0)  # Not started yet.
+        assert policy.can_retry(1)  # First retry.
+        assert not policy.can_retry(2)  # Retries exhausted.
         assert not policy.can_retry(3)
 
     def test_cannot_retry_scope_violation(self):
-        """范围违规不应重试"""
+        """Do not retry scope violations."""
         policy = RetryPolicy(max_retries=3)
         assert not policy.can_retry(1, FailureCategory.SCOPE_VIOLATION)
 
@@ -72,11 +72,11 @@ class TestRetryPolicy:
         d1 = policy.delay_for_attempt(1)
         d2 = policy.delay_for_attempt(2)
         d3 = policy.delay_for_attempt(3)
-        assert d3 > d2 > d1  # 指数退避
+        assert d3 > d2 > d1  # Exponential backoff.
 
 
 class TestEscalationDecider:
-    """升级决策"""
+    """Test escalation decisions."""
 
     def test_no_escalation_on_first_failure(self):
         decider = EscalationDecider(max_retries_before_escalation=2)
@@ -92,13 +92,13 @@ class TestEscalationDecider:
         assert not decider.should_escalate(failure_count=5)
 
     def test_escalation_budget_check(self):
-        """超过升级预算后不再升级"""
+        """Stop escalating after exhausting the escalation budget."""
         decider = EscalationDecider(max_retries_before_escalation=1, max_escalations=2)
-        assert decider.should_escalate(failure_count=1)  # 第一次升级
+        assert decider.should_escalate(failure_count=1)  # First escalation.
         decider.record_escalation()
-        assert decider.should_escalate(failure_count=1)  # 第二次
+        assert decider.should_escalate(failure_count=1)  # Second escalation.
         decider.record_escalation()
-        assert not decider.should_escalate(failure_count=1)  # 预算用尽
+        assert not decider.should_escalate(failure_count=1)  # Budget exhausted.
 
     def test_escalation_reason_includes_context(self):
         decider = EscalationDecider()
@@ -112,7 +112,7 @@ class TestEscalationDecider:
 
 
 class TestRetryManager:
-    """重试管理器"""
+    """Test the retry manager."""
 
     @pytest.fixture
     def manager(self):
@@ -131,7 +131,7 @@ class TestRetryManager:
     def test_should_retry_default_policy(self, manager):
         assert manager.should_retry("TASK-001", failure_count=0)
         assert manager.should_retry("TASK-001", failure_count=1)
-        assert not manager.should_retry("TASK-001", failure_count=2)  # 默认max=2
+        assert not manager.should_retry("TASK-001", failure_count=2)  # Default max is 2.
 
     def test_failure_history_preserved(self, manager):
         manager.record_failure("TASK-001", "Error 1", 1)

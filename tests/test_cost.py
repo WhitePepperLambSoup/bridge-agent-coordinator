@@ -1,4 +1,4 @@
-"""Phase 4.4 测试 — 成本追踪与预算守卫"""
+"""Phase 4.4 tests - cost tracking and budget guards."""
 
 import pytest
 from bridgelib.cost import (

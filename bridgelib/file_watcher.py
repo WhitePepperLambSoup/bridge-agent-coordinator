@@ -1,6 +1,6 @@
-"""Bridge 文件监听服务 — 轮询式文件变化检测与稳定窗口。
+"""Bridge file watcher — polling-based change detection with a stability window.
 
-设计参考：docs/bridge-design/10-adapter-interfaces.md §7 + 05 §导入算法
+Design reference: docs/bridge-design/10-adapter-interfaces.md §7 + 05 §Import Algorithm
 """
 
 import os
@@ -19,17 +19,18 @@ class FileEvent(Enum):
     CREATED = "created"
     MODIFIED = "modified"
     DELETED = "deleted"
-    STABLE = "stable"  # 文件已稳定可读取
+    STABLE = "stable"  # File is stable and ready to read
 
 
 @dataclass
 class WatchedFile:
-    """被监听的文件"""
+    """A file being watched."""
     path: str
     last_size: int = -1
     last_mtime: float = -1.0
     last_hash: str = ""
     stable_since: float = 0.0
+    notified: bool = False
     event: FileEvent | None = None
 
     def is_stable(self, stability_ms: float, now: float) -> bool:
@@ -37,7 +38,7 @@ class WatchedFile:
 
 
 class FileWatcher:
-    """文件监听器 — 轮询检测变化，稳定后触发回调。"""
+    """Poll for file changes and invoke callbacks after files stabilize."""
 
     def __init__(self, stability_ms: float = 750, poll_interval_ms: float = 100):
         self.stability_ms = stability_ms
@@ -49,7 +50,7 @@ class FileWatcher:
         self._lock = threading.Lock()
 
     def watch(self, filepath: str):
-        """开始监听文件。"""
+        """Start watching a file."""
         abs_path = os.path.realpath(filepath)
         with self._lock:
             if abs_path not in self._files:
@@ -61,17 +62,17 @@ class FileWatcher:
                 self._files[abs_path] = wf
 
     def unwatch(self, filepath: str):
-        """停止监听文件。"""
+        """Stop watching a file."""
         abs_path = os.path.realpath(filepath)
         with self._lock:
             self._files.pop(abs_path, None)
 
     def on_stable(self, callback):
-        """注册稳定回调。callback(watched_file) 在文件稳定后调用。"""
+        """Register callback(watched_file) to run after a file stabilizes."""
         self._callbacks.append(callback)
 
     def start(self):
-        """启动后台监听线程。"""
+        """Start the background watcher thread."""
         if self._running:
             return
         self._running = True
@@ -80,25 +81,27 @@ class FileWatcher:
         logger.info("FileWatcher started")
 
     def stop(self):
-        """停止监听。"""
+        """Stop watching."""
         self._running = False
         if self._thread:
             self._thread.join(timeout=2.0)
         logger.info("FileWatcher stopped")
 
     def scan_now(self) -> list[WatchedFile]:
-        """立即扫描所有文件，返回已稳定的文件列表。"""
+        """Scan all files immediately and return those that are stable."""
         stable = []
         now = time.monotonic()
         with self._lock:
             for wf in list(self._files.values()):
-                if self._check_file(wf, now) and wf.is_stable(self.stability_ms, now):
+                self._check_file(wf, now)
+                if wf.is_stable(self.stability_ms, now) and not wf.notified:
                     wf.event = FileEvent.STABLE
+                    wf.notified = True
                     stable.append(wf)
         return stable
 
     def _poll_loop(self):
-        """后台轮询循环。"""
+        """Run the background polling loop."""
         while self._running:
             try:
                 now = time.monotonic()
@@ -108,17 +111,23 @@ class FileWatcher:
                         changed = self._check_file(wf, now)
                         if changed:
                             wf.event = FileEvent.MODIFIED if wf.last_size >= 0 else FileEvent.CREATED
-                        if wf.is_stable(self.stability_ms, now):
+                        # Trigger callbacks only after stabilization and before notification
+                        if wf.is_stable(self.stability_ms, now) and not wf.notified:
                             wf.event = FileEvent.STABLE
                             stable_files.append(wf)
 
-                # 回调在锁外执行
+                # Run callbacks outside the lock
                 for wf in stable_files:
+                    callback_failed = False
                     for cb in self._callbacks:
                         try:
                             cb(wf)
                         except Exception:
+                            callback_failed = True
                             logger.exception(f"Callback error for {wf.path}")
+                    if not callback_failed:
+                        with self._lock:
+                            wf.notified = True
 
                 time.sleep(self.poll_interval_ms / 1000)
             except Exception:
@@ -126,12 +135,13 @@ class FileWatcher:
                 time.sleep(1.0)
 
     def _check_file(self, wf: WatchedFile, now: float) -> bool:
-        """检查文件是否变化，返回 True 如果有变化。"""
+        """Check whether a file changed and return True if it did."""
         if not os.path.isfile(wf.path):
             if wf.last_size >= 0:
                 wf.event = FileEvent.DELETED
                 wf.last_size = -1
                 wf.stable_since = 0
+                wf.notified = False
                 return True
             return False
 
@@ -145,10 +155,11 @@ class FileWatcher:
         if current_size != wf.last_size or current_mtime != wf.last_mtime:
             wf.last_size = current_size
             wf.last_mtime = current_mtime
-            wf.stable_since = 0  # 重置稳定计时器
+            wf.stable_since = 0  # Reset the stability timer
+            wf.notified = False  # Reset the notification flag
             return True
 
-        # 大小和时间都不变 → 开始计时稳定
+        # Start the stability timer when size and modification time are unchanged
         if wf.stable_since == 0:
             wf.stable_since = now
 
@@ -156,19 +167,24 @@ class FileWatcher:
 
 
 class ReceiptWatcher:
-    """回执文件专用监听器 — 检测 .bridge-task/*/RECEIPT.md 变化。"""
+    """Watch .bridge-task/*/RECEIPT.md files for receipt changes."""
 
     def __init__(self, importer, stability_ms: float = 750):
         self.importer = importer
         self.watcher = FileWatcher(stability_ms=stability_ms)
         self.watcher.on_stable(self._on_receipt_stable)
+        self._on_imported_callbacks: list = []
+
+    def on_imported(self, callback):
+        """Register a callback(task_id, result) when a receipt is successfully imported."""
+        self._on_imported_callbacks.append(callback)
 
     def watch_task_dir(self, task_dir: str, task_id: str, attempt: int,
                         lease_id: str, agent_id: str):
-        """监听任务目录中的回执文件。"""
+        """Watch the receipt file in a task directory."""
         receipt_path = os.path.join(task_dir, "RECEIPT.md")
         self.watcher.watch(receipt_path)
-        # 存储上下文以便导入
+        # Store context for import
         if not hasattr(self, '_task_contexts'):
             self._task_contexts = {}
         abs_path = os.path.realpath(receipt_path)
@@ -187,7 +203,7 @@ class ReceiptWatcher:
         self.watcher.stop()
 
     def _on_receipt_stable(self, wf: WatchedFile):
-        """回执稳定后尝试导入。"""
+        """Attempt import after the receipt stabilizes."""
         ctx = getattr(self, '_task_contexts', {}).get(wf.path, {})
         if not ctx:
             return
@@ -198,5 +214,10 @@ class ReceiptWatcher:
             )
             if result:
                 logger.info(f"Receipt auto-imported: {result.get('receipt_id')}")
+                for cb in list(self._on_imported_callbacks):
+                    try:
+                        cb(ctx["task_id"], result)
+                    except Exception:
+                        logger.exception("Error in receipt imported callback")
         except Exception as e:
             logger.error(f"Receipt auto-import failed: {e}")

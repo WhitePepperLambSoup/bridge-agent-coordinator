@@ -1,13 +1,13 @@
-"""Bridge 任务状态机 — 17 状态 + 三种推进策略。
+"""Bridge task state machine with 17 states and three progression policies.
 
-设计参考：docs/bridge-design/03-task-state-machine.md
+Design reference: docs/bridge-design/03-task-state-machine.md
 """
 
 from enum import Enum
 
 
 class TaskState(Enum):
-    """任务状态枚举 — 17 个状态。"""
+    """Enumeration of the 17 task states."""
     DRAFT = "draft"
     PLANNING = "planning"
     READY = "ready"
@@ -38,12 +38,12 @@ class ProgressionPolicy(Enum):
 
 
 class StateMachineError(Exception):
-    """状态机错误"""
+    """State machine error."""
     pass
 
 
 class TransitionResult:
-    """状态转换验证结果"""
+    """State transition validation result."""
 
     def __init__(self, is_valid: bool, requires_confirmation: bool = False,
                  reason: str = ""):
@@ -52,7 +52,7 @@ class TransitionResult:
         self.reason = reason
 
 
-# ── 状态转换图（参考 03-task-state-machine.md 状态图）──
+# ── State transition graph; see 03-task-state-machine.md ──
 
 _TRANSITIONS: dict[TaskState, set[TaskState]] = {
     TaskState.DRAFT:              {TaskState.PLANNING, TaskState.CANCELLED},
@@ -65,27 +65,27 @@ _TRANSITIONS: dict[TaskState, set[TaskState]] = {
     TaskState.APPROVED:           {TaskState.MERGE_QUEUED},
     TaskState.MERGE_QUEUED:       {TaskState.MERGING, TaskState.CONFLICT, TaskState.CANCELLED},
     TaskState.MERGING:            {TaskState.DONE, TaskState.CONFLICT, TaskState.REVISION_REQUIRED},
-    TaskState.DONE:               set(),       # 终态
+    TaskState.DONE:               set(),       # Terminal state
     TaskState.BLOCKED:            {TaskState.ASSIGNED, TaskState.CANCELLED},
     TaskState.REVISION_REQUIRED:  {TaskState.ASSIGNED, TaskState.CANCELLED},
     TaskState.ESCALATED:          {TaskState.ASSIGNED, TaskState.BLOCKED, TaskState.CANCELLED},
     TaskState.CONFLICT:           {TaskState.ASSIGNED, TaskState.CANCELLED},
     TaskState.STALE:              {TaskState.READY, TaskState.ASSIGNED, TaskState.CANCELLED},
-    TaskState.CANCELLED:          set(),       # 终态
+    TaskState.CANCELLED:          set(),       # Terminal state
 }
 
-# ── 高风险转换（需要用户确认）──
+# ── High-risk transitions requiring user confirmation ──
 _HIGH_RISK_TRANSITIONS: set[tuple[TaskState, TaskState]] = {
-    (TaskState.PLANNING, TaskState.READY),        # 规划完成
-    (TaskState.VALIDATING, TaskState.ESCALATED),  # 升级到强模型
-    (TaskState.VALIDATING, TaskState.APPROVED),   # 最终批准
-    (TaskState.APPROVED, TaskState.MERGE_QUEUED), # 进入合并队列
-    (TaskState.MERGING, TaskState.DONE),          # 最终合并
-    (TaskState.ASSIGNED, TaskState.IN_PROGRESS),  # 用户确认交予 Agent
-    (TaskState.CANCELLED, TaskState.DRAFT),       # 不可能 — 终态
+    (TaskState.PLANNING, TaskState.READY),        # Planning complete
+    (TaskState.VALIDATING, TaskState.ESCALATED),  # Escalate to a capable model
+    (TaskState.VALIDATING, TaskState.APPROVED),   # Final approval
+    (TaskState.APPROVED, TaskState.MERGE_QUEUED), # Enter the merge queue
+    (TaskState.MERGING, TaskState.DONE),          # Final merge
+    (TaskState.ASSIGNED, TaskState.IN_PROGRESS),  # User confirms agent handoff
+    (TaskState.CANCELLED, TaskState.DRAFT),       # Impossible: terminal state
 }
 
-# ── Automatic 策略下也始终暂停的转换 ──
+# ── Transitions that always pause under the automatic policy ──
 _ALWAYS_CONFIRM: set[tuple[TaskState, TaskState]] = {
     (TaskState.VALIDATING, TaskState.ESCALATED),
     (TaskState.MERGING, TaskState.DONE),
@@ -93,20 +93,20 @@ _ALWAYS_CONFIRM: set[tuple[TaskState, TaskState]] = {
 
 
 def is_valid_transition(from_state: TaskState, to_state: TaskState) -> bool:
-    """检查状态转换是否合法。"""
+    """Check whether a state transition is valid."""
     allowed = _TRANSITIONS.get(from_state, set())
     return to_state in allowed
 
 
 def get_allowed_transitions(from_state: TaskState) -> list[TaskState]:
-    """获取当前状态允许的目标状态列表。"""
+    """Get the destination states allowed from the current state."""
     return sorted(_TRANSITIONS.get(from_state, set()), key=lambda s: s.name)
 
 
 def requires_confirmation(
     from_state: TaskState, to_state: TaskState, policy: ProgressionPolicy
 ) -> bool:
-    """判断此转换是否需要用户确认。"""
+    """Determine whether a transition requires user confirmation."""
     if not is_valid_transition(from_state, to_state):
         raise StateMachineError(
             f"Invalid transition: {from_state.value} -> {to_state.value}"
@@ -115,17 +115,17 @@ def requires_confirmation(
     pair = (from_state, to_state)
 
     if policy == ProgressionPolicy.MANUAL:
-        return True  # Manual 策略：所有转换都需要确认
+        return True  # The manual policy requires confirmation for every transition
 
     if policy == ProgressionPolicy.AUTOMATIC:
-        # Automatic 策略：只有始终暂停列表中的转换需要确认
+        # The automatic policy confirms only transitions in the always-pause list
         return pair in _ALWAYS_CONFIRM
 
-    # Hybrid 策略：高风险转换需要确认
+    # The hybrid policy requires confirmation for high-risk transitions
     if policy == ProgressionPolicy.HYBRID:
         return pair in _HIGH_RISK_TRANSITIONS or pair in _ALWAYS_CONFIRM
 
-    return True  # 未知策略默认保守
+    return True  # Unknown policies default to the conservative choice
 
 
 def validate_transition(
@@ -133,7 +133,7 @@ def validate_transition(
     to_state: TaskState,
     policy: ProgressionPolicy = ProgressionPolicy.HYBRID,
 ) -> TransitionResult:
-    """验证状态转换并返回结果。"""
+    """Validate a state transition and return the result."""
     if not is_valid_transition(from_state, to_state):
         raise StateMachineError(
             f"Invalid transition: {from_state.value} -> {to_state.value}"

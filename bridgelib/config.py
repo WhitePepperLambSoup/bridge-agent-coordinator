@@ -1,6 +1,6 @@
-"""Bridge 配置分层 — project.yaml / agents/*.yaml / local.yaml 解析与覆盖。
+"""Bridge configuration layers — parse and override project.yaml, agents/*.yaml, and local.yaml.
 
-设计参考：docs/bridge-design/09-database-events-and-config.md §6
+Design reference: docs/bridge-design/09-database-events-and-config.md §6
 """
 
 import os
@@ -13,7 +13,7 @@ except ImportError:
 
 
 class ConfigError(Exception):
-    """配置错误"""
+    """Configuration error."""
     pass
 
 
@@ -21,7 +21,7 @@ class ConfigError(Exception):
 
 @dataclass
 class ProjectConfig:
-    """项目配置（.bridge/project.yaml）"""
+    """Project configuration (.bridge/project.yaml)."""
     config_version: int = 1
     protocol_version: int = 1
     project_id: str = ""
@@ -79,7 +79,7 @@ class ProjectConfig:
 
 @dataclass
 class AgentProfileConfig:
-    """Agent 档案配置（.bridge/agents/*.yaml）"""
+    """Agent profile configuration (.bridge/agents/*.yaml)."""
     profile_version: int = 1
     agent_id: str = ""
     display_name: str = ""
@@ -153,24 +153,75 @@ class AgentProfileConfig:
 # ── Config Loader ─────────────────────────────────────────
 
 class ConfigLoader:
-    """配置加载器 — 分层覆盖（project.yaml → agents/*.yaml → local.yaml）"""
+    """Configuration loader — layered overrides (project.yaml → agents/*.yaml → local.yaml)."""
 
     def __init__(self, project_root: str):
         self.project_root = os.path.abspath(project_root)
         self.bridge_dir = os.path.join(self.project_root, ".bridge")
 
     def load(self) -> ProjectConfig:
-        """加载项目配置。"""
+        """Load the project configuration and apply local.yaml overrides."""
         path = os.path.join(self.bridge_dir, "project.yaml")
         if not os.path.exists(path):
             raise ConfigError(
                 f"Project config not found: {path}. "
                 "Run bridge init first."
             )
-        return ProjectConfig.from_file(path)
+        config = ProjectConfig.from_file(path)
+
+        # Load local.yaml overrides if present
+        local_path = os.path.join(self.bridge_dir, "local.yaml")
+        if os.path.exists(local_path):
+            config = self._apply_local_overlay(config, local_path)
+
+        return config
+
+    def _apply_local_overlay(self, config: ProjectConfig,
+                             local_path: str) -> ProjectConfig:
+        """Apply local.yaml overrides to the project configuration."""
+        if yaml is None:
+            return config
+        try:
+            with open(local_path, "r", encoding="utf-8") as f:
+                local_data = yaml.safe_load(f) or {}
+        except Exception:
+            return config
+
+        # Apply overrides
+        project = local_data.get("project", {})
+        if "default_branch" in project:
+            config.default_branch = project["default_branch"]
+        if "language" in project:
+            config.language = project["language"]
+
+        coord = local_data.get("coordination", {})
+        if "workspace_mode" in coord:
+            config.workspace_mode = coord["workspace_mode"]
+        if "progression_policy" in coord:
+            config.progression_policy = coord["progression_policy"]
+        if "confirmation_policy" in coord:
+            config.confirmation_policy = coord["confirmation_policy"]
+        if "max_parallel_tasks" in coord:
+            config.max_parallel_tasks = coord["max_parallel_tasks"]
+        if "lease_ttl_seconds" in coord:
+            config.lease_ttl_seconds = coord["lease_ttl_seconds"]
+        if "receipt_stability_ms" in coord:
+            config.receipt_stability_ms = coord["receipt_stability_ms"]
+
+        # Security policy overrides
+        safety = local_data.get("safety", {})
+        if safety:
+            config.safety.update(safety)
+
+        # Budget overrides
+        budgets = local_data.get("budgets", {})
+        if budgets:
+            config.budgets.update(budgets)
+
+        return config
 
     def load_agents(self) -> list[AgentProfileConfig]:
-        """加载所有 Agent 档案。"""
+        """Load all agent profiles."""
         agents_dir = os.path.join(self.bridge_dir, "agents")
         if not os.path.isdir(agents_dir):
             return []
@@ -182,5 +233,5 @@ class ConfigLoader:
                 try:
                     agents.append(AgentProfileConfig.from_file(path))
                 except ConfigError:
-                    continue  # 跳过无效配置
+                    continue  # Skip invalid configurations
         return agents

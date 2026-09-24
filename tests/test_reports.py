@@ -1,4 +1,4 @@
-"""Phase 5.3 测试 — 成本报告 + 诊断包 + Markdown QA"""
+"""Phase 5.3 tests for cost reports, diagnostics, and Markdown QA."""
 
 import json
 import pytest
@@ -26,7 +26,7 @@ class TestCostReport:
         assert len(report.agent_breakdown) == 2
 
     def test_savings_estimate(self):
-        """如果全部由强模型完成 vs 实际成本"""
+        """Compare actual cost with using the strong model for all work."""
         estimate = generate_savings_estimate(
             actual_cost=0.15,
             hypothetical_strong_cost=0.80,
@@ -81,7 +81,7 @@ class TestDiagnosticPackage:
 
 class TestMarkdownQA:
     def test_relative_links_check(self):
-        """检查相对链接目标是否存在"""
+        """Check whether relative link targets exist."""
         with tempfile.TemporaryDirectory() as tmp:
             os.makedirs(os.path.join(tmp, "docs"), exist_ok=True)
             with open(os.path.join(tmp, "docs", "readme.md"), "w") as f:
@@ -93,7 +93,7 @@ class TestMarkdownQA:
             assert result.passed
 
     def test_mixed_language_check(self):
-        """英文文档不应混入中文"""
+        """Ensure English documentation does not contain Chinese text."""
         en_text = "## Project Info\n\n- **Name**: Test\n- **Mode**: Auto"
         has_cn = any('\u4e00' <= ch <= '\u9fff' for ch in en_text)
         assert not has_cn
@@ -116,6 +116,6 @@ class TestRunQAChecks:
 See [COLLAB.md](COLLAB.md) for current stage.
 """
         result = run_qa_checks(content, base_dir=".")
-        assert len(result) >= 3  # 至少检查 language/agent_count/sensitive_info
+        assert len(result) >= 3  # Check at least language, agent_count, and sensitive_info.
         for r in result:
             assert isinstance(r, QACheckResult)

@@ -1,4 +1,4 @@
-"""Phase 4.2 测试 — Agent 路由与推荐"""
+"""Phase 4.2 tests for agent routing and recommendations."""
 
 import pytest
 from bridgelib.routing import (
@@ -10,7 +10,7 @@ from bridgelib.routing import (
 )
 
 
-# 模拟 Agent 档案
+# Mock agent profile.
 def _make_agent(aid, tier, cost_tier, roles, can_plan=False, can_review=False, can_merge=False, max_parallel=2):
     return {
         "id": aid, "display_name": f"Agent {aid}",
@@ -24,7 +24,7 @@ def _make_agent(aid, tier, cost_tier, roles, can_plan=False, can_review=False, c
 
 
 class TestFilterCandidates:
-    """硬过滤"""
+    """Test hard filtering."""
 
     def test_filter_by_role(self):
         agents = [
@@ -62,7 +62,7 @@ class TestFilterCandidates:
 
 
 class TestScoreCandidates:
-    """评分"""
+    """Test candidate scoring."""
 
     def test_lower_cost_scores_higher_for_low_risk(self):
         agents = [
@@ -71,7 +71,7 @@ class TestScoreCandidates:
         ]
         req = RouteRequest(task_id="TASK-001", required_role="implementer", risk="low")
         scored = score_candidates(agents, req)
-        # 低成本应该排在前面
+        # The lower-cost candidate should rank first.
         assert scored[0]["id"] == "a1"
 
     def test_higher_capability_scores_higher_for_high_risk(self):
@@ -85,7 +85,7 @@ class TestScoreCandidates:
 
 
 class TestRecommendAgent:
-    """推荐 Agent"""
+    """Test agent recommendations."""
 
     def test_recommend_returns_best(self):
         agents = [

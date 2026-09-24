@@ -1,6 +1,6 @@
-"""Bridge 串行合并队列 — FIFO 集成、冲突处理、状态追踪。
+"""Bridge serial merge queue with FIFO integration, conflict handling, and status tracking.
 
-设计参考：docs/bridge-design/06-git-worktree-and-conflicts.md §串行合并队列
+Design reference: docs/bridge-design/06-git-worktree-and-conflicts.md, Serial Merge Queue section
 """
 
 import secrets
@@ -53,7 +53,7 @@ class MergeEntry:
 
 
 class MergeQueue:
-    """串行合并队列 — 一次只允许一个合并操作。"""
+    """Serial merge queue that permits only one merge operation at a time."""
 
     def __init__(self, target_branch: str = "main"):
         self.target_branch = target_branch
@@ -84,7 +84,7 @@ class MergeQueue:
                     f"Cannot start merge: entry {entry_id} is {entry.status}, not queued"
                 )
 
-            # 检查是否有正在进行的合并
+            # Check whether a merge is already in progress.
             merging = [
                 e for e in self._entries.values()
                 if e.status == MergeStatus.MERGING
@@ -94,7 +94,7 @@ class MergeQueue:
                     f"Cannot start merge: {merging[0].entry_id} is already merging"
                 )
 
-            # FIFO 强制：只有队首项可以开始
+            # Enforce FIFO: only the first queued entry can start.
             queued = self.list_queued()
             if queued and queued[0].entry_id != entry_id:
                 raise MergeError(

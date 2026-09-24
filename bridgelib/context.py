@@ -1,6 +1,6 @@
-"""Bridge 分层上下文管理 — 项目/模块/任务/增量四层 + 摘要缓存。
+"""Bridge layered context management — project, module, task, and incremental layers with summary caching.
 
-设计参考：docs/bridge-design/04-agent-routing-and-cost.md §分层上下文
+Design reference: docs/bridge-design/04-agent-routing-and-cost.md §Layered Context
 """
 
 import hashlib
@@ -20,7 +20,7 @@ class ContextLayer(Enum):
 
 @dataclass
 class ProjectContext:
-    """项目层：技术栈、架构、全局约束"""
+    """Project layer: technology stack, architecture, and global constraints."""
     project_id: str
     tech_stack: list[str] = field(default_factory=list)
     architecture: str = ""
@@ -31,7 +31,7 @@ class ProjectContext:
 
 @dataclass
 class ModuleContext:
-    """模块层：接口、关键文件、已知陷阱"""
+    """Module layer: interfaces, key files, and known pitfalls."""
     module_name: str
     key_files: list[str] = field(default_factory=list)
     interfaces: list[str] = field(default_factory=list)
@@ -42,7 +42,7 @@ class ModuleContext:
 
 @dataclass
 class TaskContext:
-    """任务层：目标、范围、验收、检查"""
+    """Task layer: objective, scope, acceptance criteria, and checks."""
     task_id: str
     objective: str = ""
     allowed_paths: list[str] = field(default_factory=list)
@@ -55,7 +55,7 @@ class TaskContext:
 
 @dataclass
 class IncrementalContext:
-    """增量层：diff、失败日志、审查意见"""
+    """Incremental layer: diffs, failure logs, and review comments."""
     task_id: str
     attempt: int = 1
     diff_summary: str = ""
@@ -68,7 +68,7 @@ class IncrementalContext:
 # ── Summary Generation ────────────────────────────────────
 
 def generate_context_summary(ctx) -> str:
-    """生成紧凑的上下文摘要（不包含完整源码或聊天历史）。"""
+    """Generate a compact context summary without full source code or chat history."""
     if isinstance(ctx, ProjectContext):
         return (
             f"[Project:{ctx.project_id}] "
@@ -102,7 +102,7 @@ def generate_context_summary(ctx) -> str:
 
 
 def is_context_stale(ctx, current_commit: str) -> bool:
-    """判断上下文是否过期。"""
+    """Determine whether the context is stale."""
     if not ctx.source_commit:
         return True
     return ctx.source_commit != current_commit
@@ -115,7 +115,7 @@ def content_hash(content: str) -> str:
 # ── Context Manager ───────────────────────────────────────
 
 class ContextManager:
-    """上下文管理器 — 存储和检索分层上下文。"""
+    """Store and retrieve layered context."""
 
     def __init__(self):
         self._contexts: dict[str, object] = {}
@@ -143,7 +143,7 @@ class ContextManager:
 # ── Context Cache ─────────────────────────────────────────
 
 class ContextCache:
-    """上下文缓存 — 基于 source_commit 的缓存失效。"""
+    """Context cache invalidated by source_commit."""
 
     def __init__(self, max_size: int = 100):
         self._cache: dict[str, tuple[str, str]] = {}  # key → (content, source_commit)
@@ -153,7 +153,7 @@ class ContextCache:
     def put(self, key: str, content: str, source_commit: str = ""):
         with self._lock:
             if len(self._cache) >= self._max_size:
-                # 简单 FIFO 淘汰
+                # Simple FIFO eviction
                 first_key = next(iter(self._cache))
                 del self._cache[first_key]
             self._cache[key] = (content, source_commit)

@@ -1,4 +1,4 @@
-"""Phase 2.3 测试 — 声明式验证执行器"""
+"""Phase 2.3 tests for the declarative validation executor."""
 
 import os
 import json
@@ -16,7 +16,7 @@ from bridgelib.validation import (
 
 
 class TestValidationCheck:
-    """验证规则定义"""
+    """Test validation check definitions."""
 
     def test_minimal_check(self):
         check = ValidationCheck(
@@ -25,7 +25,7 @@ class TestValidationCheck:
             args=["-m", "pytest", "-q"],
         )
         assert check.check_id == "unit-tests"
-        assert check.required is True     # 默认必需
+        assert check.required is True     # Required by default.
         assert check.timeout_seconds == 300
         assert check.output_limit_bytes == 1_048_576
 
@@ -59,7 +59,7 @@ class TestValidationCheck:
 
 
 class TestValidationResult:
-    """验证结果"""
+    """Test validation results."""
 
     def test_passed_result(self):
         result = ValidationResult(
@@ -106,10 +106,10 @@ class TestValidationResult:
 
 
 class TestValidationExecutor:
-    """验证执行器"""
+    """Test the validation executor."""
 
     def test_run_passing_check(self):
-        """执行一个会成功的简单命令"""
+        """Run a simple command that succeeds."""
         check = ValidationCheck(
             check_id="echo-test",
             executable="python",
@@ -122,7 +122,7 @@ class TestValidationExecutor:
         assert "hello" in result.stdout
 
     def test_run_failing_check(self):
-        """执行一个会失败的命令"""
+        """Run a command that fails."""
         check = ValidationCheck(
             check_id="fail-test",
             executable="python",
@@ -134,7 +134,7 @@ class TestValidationExecutor:
         assert result.exit_code == 1
 
     def test_execute_all(self):
-        """批量执行"""
+        """Execute checks in a batch."""
         executor = ValidationExecutor()
         checks = [
             ValidationCheck(check_id="c1", executable="python",
@@ -147,7 +147,7 @@ class TestValidationExecutor:
         assert all(r.status == ValidationStatus.PASSED for r in results)
 
     def test_execute_all_stops_on_failure(self):
-        """stop_on_failure 模式"""
+        """Test stop_on_failure mode."""
         executor = ValidationExecutor(stop_on_failure=True)
         checks = [
             ValidationCheck(check_id="fail", executable="python",
@@ -157,11 +157,11 @@ class TestValidationExecutor:
                           args=["-c", "print('should not run')"], timeout_seconds=5),
         ]
         results = executor.execute_all(checks)
-        # 第二个检查应该被跳过
+        # The second check should be skipped.
         assert len(results) <= 1 or results[1].status == ValidationStatus.SKIPPED
 
     def test_output_truncation(self):
-        """超大输出被截断"""
+        """Truncate oversized output."""
         check = ValidationCheck(
             check_id="big-output",
             executable="python",
@@ -170,11 +170,11 @@ class TestValidationExecutor:
             timeout_seconds=5,
         )
         result = run_check(check)
-        assert len(result.stdout) <= 200  # 允许一些余量
+        assert len(result.stdout) <= 200  # Allow some overhead.
         assert result.stdout_truncated
 
     def test_nonexistent_executable(self):
-        """不存在的可执行文件"""
+        """Handle a nonexistent executable."""
         check = ValidationCheck(
             check_id="no-such-exe",
             executable="nonexistent_command_xyz",
@@ -185,7 +185,7 @@ class TestValidationExecutor:
         assert result.status in (ValidationStatus.ERROR, ValidationStatus.FAILED)
 
     def test_non_required_check_failure_not_blocking(self):
-        """非必需检查失败不阻塞"""
+        """Do not block on a failed optional check."""
         check = ValidationCheck(
             check_id="optional-lint",
             executable="python",
@@ -195,12 +195,12 @@ class TestValidationExecutor:
         )
         result = run_check(check)
         assert result.status == ValidationStatus.FAILED
-        # 非必需检查的失败信息应该标记
+        # The failed check should remain marked as optional.
         assert not check.required
 
 
 class TestValidationExecutorIntegration:
-    """集成测试"""
+    """Integration tests for the validation executor."""
 
     def test_executor_with_temp_script(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -1,4 +1,4 @@
-"""Phase 1.2 测试 — 数据库核心 (SQLite schema, migration, lock)"""
+"""Phase 1.2 tests - database core (SQLite schema, migration, lock)."""
 
 import os
 import sqlite3
@@ -19,7 +19,7 @@ from bridgelib.database import (
 
 @pytest.fixture
 def db():
-    """创建临时数据库（每次测试独立的 :memory: DB）"""
+    """Create an independent in-memory database for each test."""
     database = Database(":memory:")
     database.initialize()
     return database
@@ -27,7 +27,7 @@ def db():
 
 @pytest.fixture
 def db_file():
-    """创建基于文件的临时数据库"""
+    """Create a temporary file-backed database."""
     with tempfile.TemporaryDirectory() as tmp:
         path = os.path.join(tmp, "bridge.db")
         database = Database(path)
@@ -39,7 +39,7 @@ def db_file():
 # ── Schema Tests ──────────────────────────────────────────
 
 class TestSchemaCreation:
-    """数据库表创建测试"""
+    """Database table creation tests."""
 
     def test_all_tables_exist(self, db):
         tables = db.list_tables()
@@ -57,7 +57,7 @@ class TestSchemaCreation:
         assert version == SCHEMA_VERSION
 
     def test_wal_mode_enabled(self, db_file):
-        """WAL 模式仅适用于文件数据库"""
+        """WAL mode applies only to file-backed databases."""
         result = db_file.execute("PRAGMA journal_mode")
         mode = result.fetchone()[0]
         assert mode.lower() == "wal"
@@ -68,7 +68,7 @@ class TestSchemaCreation:
 
 
 class TestProjectTable:
-    """projects 表测试"""
+    """Projects table tests."""
 
     def test_create_project(self, db):
         project_id = db.create_project(
@@ -104,7 +104,7 @@ class TestProjectTable:
 
 
 class TestAgentProfileTable:
-    """agent_profiles 表测试"""
+    """Agent profiles table tests."""
 
     def test_create_agent(self, db):
         project_id = db.create_project(name="Test", root_path="/t")
@@ -141,7 +141,7 @@ class TestAgentProfileTable:
         agent = db.get_agent(aid)
         assert agent["display_name"] == "Codex"
         assert agent["capability_tier"] == "high"
-        # permissions 存储在 permissions_json 中
+        # Permissions are stored in permissions_json.
         import json
         perms = json.loads(agent["permissions_json"])
         assert perms["can_plan"] is True
@@ -162,7 +162,7 @@ class TestAgentProfileTable:
 
 
 class TestTaskTable:
-    """tasks 表测试（含乐观并发控制）"""
+    """Tasks table tests, including optimistic concurrency control."""
 
     def _setup_goal_and_agents(self, db):
         pid = db.create_project(name="Test", root_path="/t")
@@ -209,10 +209,10 @@ class TestTaskTable:
         assert task["version"] == 2
 
     def test_optimistic_concurrency_conflict(self, db):
-        """版本冲突时拒绝更新"""
+        """Reject an update when versions conflict."""
         pid, gid, aid, rid = self._setup_goal_and_agents(db)
         tid = db.create_task(goal_id=gid, title="Test", state="draft")
-        # 使用过期版本号
+        # Use a stale version number.
         with pytest.raises(DatabaseError):
             db.update_task_state(tid, "draft", "planning", expected_version=99)
 
@@ -227,19 +227,19 @@ class TestTaskTable:
         assert len(planning) == 1
 
     def test_task_numbering_sequential(self, db):
-        """任务编号递增"""
+        """Task numbers increase sequentially."""
         pid, gid, aid, rid = self._setup_goal_and_agents(db)
         t1 = db.create_task(goal_id=gid, title="T1")
         t2 = db.create_task(goal_id=gid, title="T2")
         assert t1 != t2
-        # 编号递增
+        # Numbers increase.
         n1 = int(t1.split("-")[1])
         n2 = int(t2.split("-")[1])
         assert n2 > n1
 
 
 class TestEventTable:
-    """events 审计表测试"""
+    """Events audit table tests."""
 
     def test_write_event(self, db):
         db.write_event(
@@ -256,7 +256,7 @@ class TestEventTable:
         assert events[0]["event_type"] == "TaskCreated"
 
     def test_events_are_immutable(self, db):
-        """事件表不可更新"""
+        """Document that the events table can be updated directly."""
         db.write_event(
             event_type="TaskCreated",
             actor_type="user",
@@ -265,31 +265,31 @@ class TestEventTable:
             task_id="TASK-001",
             payload={"title": "Test"},
         )
-        # 尝试直接 UPDATE — SQLite 没有行级安全，但我们会验证 API 不提供 update_event
+        # Attempt a direct UPDATE; SQLite has no row-level protection, while the API omits update_event.
         cur = db.conn.execute("UPDATE events SET event_type='hacked' WHERE task_id='TASK-001'")
-        # SQLite 允许 UPDATE，记录此行为并验证行被影响
+        # SQLite permits the UPDATE, so document the behavior and verify the affected row.
         assert cur.rowcount == 1, "Expected the UPDATE to affect 1 row (SQLite limitation)"
-        # 重新读取验证实际发生了修改（SQLite 无保护）
+        # Read the row again to verify that it changed without SQLite protection.
         events = db.list_events(task_id="TASK-001")
         assert len(events) == 1
-        # 注意：SQLite 没有内置的不变约束，数据库层不提供 update_event API
-        # 这个测试记录了此限制
+        # SQLite has no built-in immutability constraint, and the database layer omits update_event.
+        # This test documents that limitation.
 
 
 class TestMigration:
-    """数据库迁移测试"""
+    """Database migration tests."""
 
     def test_fresh_database_has_current_version(self, db_file):
         assert db_file.get_schema_version() == SCHEMA_VERSION
 
     def test_migration_from_version_0(self):
-        """从空数据库迁移到当前版本"""
+        """Migrate an empty database to the current version."""
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "bridge.db")
-            # 创建空数据库（模拟旧版本）
+            # Create an empty database to simulate an old version.
             conn = sqlite3.connect(path)
             conn.close()
-            # 迁移
+            # Migrate it.
             migrate_database(path)
             db = Database(path)
             db.initialize()
@@ -297,22 +297,22 @@ class TestMigration:
             db.close()
 
     def test_init_database_idempotent(self, db_file):
-        """重复初始化不报错"""
+        """Repeated initialization does not raise an error."""
         db_file.initialize()
         db_file.initialize()
         assert db_file.get_schema_version() == SCHEMA_VERSION
 
 
 class TestSingleInstanceLock:
-    """单实例锁测试"""
+    """Single-instance lock tests."""
 
     def test_lock_acquire_release(self, db_file):
-        """同一进程内获取和释放锁"""
+        """Acquire and release a lock within the same process."""
         assert db_file.acquire_lock() is True
         assert db_file.release_lock() is True
 
     def test_lock_file_created(self, db_file):
-        """锁文件在正确位置创建"""
+        """Create the lock file in the correct location."""
         db_file.acquire_lock()
         lock_path = os.path.join(os.path.dirname(db_file.path), "bridge.lock")
         db_file.release_lock()

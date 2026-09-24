@@ -1,6 +1,6 @@
-"""Bridge Agent 路由与推荐 — 硬过滤 + 可解释评分。
+"""Bridge agent routing and recommendations with hard filters and explainable scores.
 
-设计参考：docs/bridge-design/04-agent-routing-and-cost.md
+Design reference: docs/bridge-design/04-agent-routing-and-cost.md
 """
 
 import json
@@ -28,7 +28,7 @@ class RouteResult:
 # ── Hard Filters ──────────────────────────────────────────
 
 def filter_candidates(agents: list[dict], request: RouteRequest) -> list[dict]:
-    """硬过滤：角色、能力等级、启用状态。"""
+    """Apply hard filters for role, capability tier, and enabled status."""
     candidates = []
     for a in agents:
         if not a.get("enabled", 1):
@@ -37,17 +37,17 @@ def filter_candidates(agents: list[dict], request: RouteRequest) -> list[dict]:
         roles = _parse_json(a.get("roles_json", "[]"), [])
         perms = _parse_json(a.get("permissions_json", "{}"), {})
 
-        # 角色匹配
+        # Role matching
         if request.required_role == "planner" and not perms.get("can_plan"):
             continue
         if request.required_role == "reviewer" and not perms.get("can_review"):
             continue
         if request.required_role == "implementer" and request.required_role not in roles:
-            # 实现者必须有 implementer 角色
+            # Implementers must have the implementer role
             if "implementer" not in roles:
                 continue
 
-        # 高风险任务要求高能力
+        # High-risk tasks require high capability
         if request.risk in ("high", "critical"):
             if a.get("capability_tier") not in ("high",):
                 continue
@@ -57,12 +57,12 @@ def filter_candidates(agents: list[dict], request: RouteRequest) -> list[dict]:
 
 
 def score_candidates(agents: list[dict], request: RouteRequest) -> list[dict]:
-    """可解释评分：成本效率 vs 能力匹配。"""
-    scored = []
+    """Score candidates by cost efficiency and capability fit."""
+    scored: list[tuple[float, dict]] = []
     for a in agents:
         score = 0.0
 
-        # 成本效率（低风险时权重高）
+        # Cost efficiency has greater weight for low-risk tasks
         cost_tier = a.get("cost_tier", "medium")
         if request.risk in ("low", "medium"):
             if cost_tier == "low":
@@ -70,7 +70,7 @@ def score_candidates(agents: list[dict], request: RouteRequest) -> list[dict]:
             elif cost_tier == "medium":
                 score += 20
 
-        # 能力匹配（高风险时权重高）
+        # Capability fit has greater weight for high-risk tasks
         cap_tier = a.get("capability_tier", "standard")
         if request.risk in ("high", "critical"):
             if cap_tier == "high":
@@ -78,16 +78,16 @@ def score_candidates(agents: list[dict], request: RouteRequest) -> list[dict]:
             elif cap_tier == "standard":
                 score += 20
 
-        # 基础匹配
-        score += 30  # 只要通过过滤就给基础分
+        # Base match
+        score += 30  # Every candidate that passes filtering gets a base score
 
-        scored.append({"agent": a, "score": score})
-    scored.sort(key=lambda x: x["score"], reverse=True)
-    return [s["agent"] for s in scored]
+        scored.append((score, a))
+    scored.sort(key=lambda item: item[0], reverse=True)
+    return [agent for _score, agent in scored]
 
 
 def recommend_agent(agents: list[dict], request: RouteRequest) -> RouteResult:
-    """推荐最佳 Agent。"""
+    """Recommend the best agent."""
     candidates = filter_candidates(agents, request)
     if not candidates:
         return RouteResult(reason="No agent matches the required criteria")

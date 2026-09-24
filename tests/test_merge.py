@@ -1,4 +1,4 @@
-"""Phase 3.2 测试 — 串行合并队列"""
+"""Phase 3.2 tests - serial merge queue."""
 
 import pytest
 from bridgelib.merge import (
@@ -82,7 +82,7 @@ class TestMergeQueue:
         assert cancelled.status == MergeStatus.CANCELLED
 
     def test_only_one_merging_at_a_time(self, queue):
-        """串行合并：同时只能有一个 MERGING"""
+        """Only one serial merge can have MERGING status at a time."""
         e1 = queue.enqueue(task_id="TASK-001", candidate_commit="a")
         e2 = queue.enqueue(task_id="TASK-002", candidate_commit="b")
         queue.start_merge(e1.entry_id)
@@ -92,7 +92,7 @@ class TestMergeQueue:
     def test_cannot_start_non_queued(self, queue):
         entry = queue.enqueue(task_id="TASK-001", candidate_commit="abc")
         queue.start_merge(entry.entry_id)
-        # 已经在 MERGING，不能再 start
+        # An entry already in MERGING cannot be started again.
         with pytest.raises(MergeError):
             queue.start_merge(entry.entry_id)
 
@@ -108,7 +108,7 @@ class TestMergeQueue:
         queue.complete_merge(e1.entry_id, "done")
         e2 = queue.enqueue(task_id="TASK-002", candidate_commit="b")
         history = queue.list_history()
-        assert len(history) == 1  # 只有 TASK-001 已完成
+        assert len(history) == 1  # Only TASK-001 is complete.
 
     def test_get_by_task(self, queue):
         queue.enqueue(task_id="TASK-001", candidate_commit="a")
@@ -120,7 +120,7 @@ class TestMergeQueue:
             queue.start_merge("nonexistent")
 
     def test_next_queued(self, queue):
-        """next_queued 返回队首待合并项"""
+        """next_queued returns the first queued merge entry."""
         queue.enqueue(task_id="TASK-001", candidate_commit="a")
         queue.enqueue(task_id="TASK-002", candidate_commit="b")
         next_entry = queue.next_queued()

@@ -1,4 +1,4 @@
-"""Phase 5.1 测试 — 分层上下文与摘要缓存"""
+"""Phase 5.1 tests - layered context and summary caching."""
 
 import pytest
 import hashlib
@@ -16,7 +16,7 @@ from bridgelib.context import (
 
 
 class TestContextLayers:
-    """四层上下文"""
+    """Four-layer context."""
 
     def test_project_context(self):
         ctx = ProjectContext(
@@ -65,7 +65,7 @@ class TestContextLayers:
 
 
 class TestContextSummary:
-    """上下文摘要生成"""
+    """Context summary generation."""
 
     def test_summary_includes_key_info(self):
         ctx = TaskContext(
@@ -80,7 +80,7 @@ class TestContextSummary:
         assert "Fix login bug" in summary
 
     def test_summary_excludes_full_body(self):
-        """摘要不应包含完整源码或聊天历史"""
+        """The summary should not contain full source code or chat history."""
         ctx = ProjectContext(
             project_id="p1",
             tech_stack=["Python"],
@@ -89,11 +89,11 @@ class TestContextSummary:
             source_commit="abc",
         )
         summary = generate_context_summary(ctx)
-        assert len(summary) < 2000  # 摘要应该紧凑
+        assert len(summary) < 2000  # The summary should be compact.
 
 
 class TestContextStaleness:
-    """上下文过期判断"""
+    """Context staleness detection."""
 
     def test_same_commit_not_stale(self):
         ctx = TaskContext(
@@ -121,7 +121,7 @@ class TestContextStaleness:
 
 
 class TestContextManager:
-    """上下文管理器"""
+    """Context manager."""
 
     @pytest.fixture
     def manager(self):
@@ -161,7 +161,7 @@ class TestContextManager:
 
 
 class TestContextCache:
-    """上下文缓存（基于内容哈希）"""
+    """Content-hash-based context cache."""
 
     def test_cache_hit(self):
         cache = ContextCache()

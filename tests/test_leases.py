@@ -1,4 +1,4 @@
-"""Phase 2.1 测试 — 租约与心跳"""
+"""Phase 2.1 tests - leases and heartbeats."""
 
 import time
 import pytest
@@ -16,7 +16,7 @@ from bridgelib.leases import (
 
 
 class TestLeaseModel:
-    """租约数据模型"""
+    """Lease data model."""
 
     def test_create_lease(self):
         now = datetime.now(timezone.utc)
@@ -54,7 +54,7 @@ class TestLeaseModel:
 
 
 class TestLeaseExpiry:
-    """租约过期判断"""
+    """Lease expiration detection."""
 
     def test_active_lease_not_expired(self):
         expires = datetime.now(timezone.utc) + timedelta(hours=1)
@@ -65,13 +65,13 @@ class TestLeaseExpiry:
         assert is_lease_expired(expires)
 
     def test_exact_boundary(self):
-        """刚好到期算过期"""
+        """A lease is expired at the exact expiration boundary."""
         expires = datetime.now(timezone.utc)
-        time.sleep(0.01)  # 确保已经过了
+        time.sleep(0.01)  # Ensure the expiration time has passed.
         assert is_lease_expired(expires)
 
     def test_compute_expiry_default(self):
-        """默认 TTL 900 秒"""
+        """The default TTL is 900 seconds."""
         before = datetime.now(timezone.utc)
         expiry = compute_expiry()
         after = datetime.now(timezone.utc)
@@ -80,11 +80,11 @@ class TestLeaseExpiry:
 
 
 class TestLeaseIdGeneration:
-    """租约 ID 生成"""
+    """Lease ID generation."""
 
     def test_generate_unique_ids(self):
         ids = {generate_lease_id() for _ in range(100)}
-        assert len(ids) == 100  # 全部唯一
+        assert len(ids) == 100  # All IDs are unique.
 
     def test_generate_id_prefix(self):
         lease_id = generate_lease_id()
@@ -92,7 +92,7 @@ class TestLeaseIdGeneration:
 
 
 class TestLeaseManager:
-    """租约管理器"""
+    """Lease manager."""
 
     @pytest.fixture
     def manager(self):
@@ -122,7 +122,7 @@ class TestLeaseManager:
     def test_renew_expired_lease_fails(self, manager):
         lease = manager.acquire(
             task_id="TASK-001", agent_id="agent-a",
-            resource_path="src/**", ttl_seconds=-1,  # 立即过期
+            resource_path="src/**", ttl_seconds=-1,  # Expire immediately.
         )
         with pytest.raises(LeaseError):
             manager.renew(lease.lease_id, ttl_seconds=900)
@@ -159,7 +159,7 @@ class TestLeaseManager:
         assert len(active) == 2
 
     def test_list_expired(self, manager):
-        # 创建一个立即过期的租约
+        # Create a lease that expires immediately.
         manager.acquire(
             task_id="TASK-001", agent_id="a",
             resource_path="src/**", ttl_seconds=-1,
@@ -173,7 +173,7 @@ class TestLeaseManager:
         assert expired[0].task_id == "TASK-001"
 
     def test_conflict_detection_same_path(self, manager):
-        """相同资源路径的冲突检测"""
+        """Detect conflicts on the same resource path."""
         manager.acquire(
             task_id="TASK-001", agent_id="a",
             resource_path="src/auth/**", ttl_seconds=900,
@@ -185,13 +185,13 @@ class TestLeaseManager:
             )
 
     def test_no_conflict_different_paths(self, manager):
-        """不同路径不冲突"""
+        """Different paths do not conflict."""
         manager.acquire(task_id="TASK-001", agent_id="a", resource_path="src/a/**")
         lease2 = manager.acquire(task_id="TASK-002", agent_id="b", resource_path="src/b/**")
         assert lease2.status == LeaseStatus.ACTIVE
 
     def test_conflict_detection_global_resource(self, manager):
-        """全局资源冲突"""
+        """Detect global resource conflicts."""
         manager.acquire(
             task_id="TASK-001", agent_id="a",
             resource_type="global", resource_path="GLOBAL:database-schema",

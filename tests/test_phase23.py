@@ -1,4 +1,4 @@
-"""Phase 2/3 测试 — GitAdapter + SafetyPolicy + FileWatcher"""
+"""Phase 2/3 tests - GitAdapter, SafetyPolicy, and FileWatcher."""
 
 import pytest
 import tempfile
@@ -13,17 +13,17 @@ from bridgelib.file_watcher import FileWatcher, ReceiptWatcher
 
 
 class TestGitAdapter:
-    """GitRepositoryAdapter 测试（在真实 Git 仓库中运行）"""
+    """GitRepositoryAdapter tests running in a real Git repository."""
 
     @pytest.fixture
     def git_repo(self):
-        """创建临时 Git 仓库"""
+        """Create a temporary Git repository."""
         import subprocess
         d = tempfile.mkdtemp()
         subprocess.run(["git", "init", d], capture_output=True, check=True)
         subprocess.run(["git", "-C", d, "config", "user.email", "test@test.com"], capture_output=True)
         subprocess.run(["git", "-C", d, "config", "user.name", "Test"], capture_output=True)
-        # 创建初始 commit
+        # Create the initial commit.
         with open(os.path.join(d, "README.md"), "w") as f:
             f.write("# Test")
         subprocess.run(["git", "-C", d, "add", "."], capture_output=True)
@@ -49,7 +49,7 @@ class TestGitAdapter:
         import subprocess
         adapter = GitRepositoryAdapter(git_repo)
         base = adapter.check_repo().head_commit
-        # 创建第二个 commit
+        # Create a second commit.
         with open(os.path.join(git_repo, "file.txt"), "w") as f:
             f.write("content")
         subprocess.run(["git", "-C", git_repo, "add", "."], capture_output=True)
@@ -69,25 +69,25 @@ class TestGitAdapter:
 
 
 class TestSafetyPolicy:
-    """SafetyPolicy 测试"""
+    """SafetyPolicy tests."""
 
     def test_balanced_default(self):
         sp = create_balanced_policy()
-        # 低风险操作可自动
+        # Low-risk operations can be automated.
         assert sp.can_automate("create_worktree")
         assert sp.can_automate("run_approved_checks")
-        # 高风险操作需确认
+        # High-risk operations require confirmation.
         assert sp.requires_confirmation("merge_high_risk")
         assert sp.requires_confirmation("revert_merged_commit")
 
     def test_strict_mode(self):
         sp = create_strict_policy()
-        # Strict 模式下几乎所有操作都需确认
+        # Almost all operations require confirmation in Strict mode.
         assert sp.requires_confirmation("create_worktree")
 
     def test_expert_mode(self):
         sp = create_expert_policy()
-        # Expert 模式下只有 ALWAYS_CONFIRM 和 DISABLED 需确认
+        # Only ALWAYS_CONFIRM and DISABLED require confirmation in Expert mode.
         assert sp.can_automate("task_assignment")
         assert sp.requires_confirmation("merge_high_risk")
 
@@ -95,9 +95,9 @@ class TestSafetyPolicy:
         sp = create_expert_policy()
         for action in HARD_FLOOR_ACTIONS:
             assert sp.is_hard_floor(action)
-            # 硬底线始终需要确认
+            # Hard-floor actions always require confirmation.
             assert sp.requires_confirmation(action)
-            # 硬底线不可自动化
+            # Hard-floor actions cannot be automated.
             assert not sp.can_automate(action)
 
     def test_override_normal_action(self):
@@ -117,7 +117,7 @@ class TestSafetyPolicy:
 
 
 class TestFileWatcher:
-    """FileWatcher 测试"""
+    """FileWatcher tests."""
 
     def test_watch_and_detect_stable(self):
         import time
@@ -125,17 +125,17 @@ class TestFileWatcher:
             path = os.path.join(d, "test.txt")
             with open(path, "w") as f:
                 f.write("initial")
-            
+
             fw = FileWatcher(stability_ms=100, poll_interval_ms=50)
             fw.watch(path)
-            
+
             stable_files = []
             fw.on_stable(lambda wf: stable_files.append(wf))
             fw.start()
-            time.sleep(0.5)  # 等待稳定
+            time.sleep(0.5)  # Wait for the file to stabilize.
             fw.stop()
-            
-            # 文件从初始就存在且未修改，应检测为稳定
+
+            # An unchanged file present from the start should be detected as stable.
             assert len(stable_files) >= 1
 
     def test_watch_nonexistent_file(self):
@@ -143,7 +143,7 @@ class TestFileWatcher:
             fw = FileWatcher(stability_ms=100)
             fw.watch(os.path.join(d, "nonexistent.txt"))
             stable = fw.scan_now()
-            assert len(stable) == 0  # 不存在的文件不视为稳定
+            assert len(stable) == 0  # A nonexistent file is not considered stable.
 
     def test_unwatch(self):
         with tempfile.TemporaryDirectory() as d:

@@ -1,12 +1,15 @@
-"""Bridge 成本报告、诊断包与 Markdown QA 检查器。
+"""Bridge cost reports, diagnostic packages, and Markdown QA checks.
 
-设计参考：docs/bridge-design/04 §成本节省报告 + 09 §诊断包 + 11 §Markdown QA
+Design references: docs/bridge-design/04 cost savings reports, 09 diagnostic packages,
+and 11 Markdown QA
 """
 
 import json
 import os
 import re
 from dataclasses import dataclass, field
+
+from bridgelib import __version__
 
 
 # ── Cost Report ───────────────────────────────────────────
@@ -81,7 +84,7 @@ def generate_savings_estimate(
 @dataclass
 class DiagnosticPackage:
     project_id: str
-    version: str = "0.0.0"
+    version: str = __version__
     event_summary: dict = field(default_factory=dict)
     config_summary: dict = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
@@ -98,7 +101,7 @@ class DiagnosticPackage:
         }
 
     def preview(self) -> str:
-        """生成诊断包预览（不包含秘密或完整日志）。"""
+        """Generate a diagnostic package preview without secrets or full logs."""
         lines = [
             f"Diagnostic Package for {self.project_id}",
             f"Version: {self.version}",
@@ -124,7 +127,7 @@ class QACheckResult:
 def run_qa_checks(content: str, base_dir: str = ".") -> list[QACheckResult]:
     results = []
 
-    # 语言检查：英文文档不混入中文
+    # Language check: English documents must not contain Chinese text
     has_cn = any('\u4e00' <= ch <= '\u9fff' for ch in content)
     results.append(QACheckResult(
         "language_mixing",
@@ -132,7 +135,7 @@ def run_qa_checks(content: str, base_dir: str = ".") -> list[QACheckResult]:
         "No Chinese characters found" if not has_cn else "Chinese characters detected in English document",
     ))
 
-    # Agent 数量检查：不写死为两个
+    # Agent count check: do not hardcode exactly two agents
     agent_fixed = bool(re.search(r'Agent\s+[AB]\b', content)) and "Agent C" not in content
     results.append(QACheckResult(
         "agent_count_dynamic",
@@ -140,7 +143,7 @@ def run_qa_checks(content: str, base_dir: str = ".") -> list[QACheckResult]:
         "Agent references appear dynamic" if not agent_fixed else "Agent references may be hardcoded to two",
     ))
 
-    # 敏感信息检查
+    # Sensitive information check
     sensitive_patterns = [
         (r'sk-[a-zA-Z0-9]{20,}', "OpenAI API key"),
         (r'AIza[0-9A-Za-z\-_]{35}', "Google API key"),
@@ -156,7 +159,7 @@ def run_qa_checks(content: str, base_dir: str = ".") -> list[QACheckResult]:
         "No secrets found" if not found_sensitive else f"Found: {', '.join(found_sensitive)}",
     ))
 
-    # 相对链接检查
+    # Relative link check
     links = re.findall(r'\]\(([^)]+\.md)\)', content)
     broken = []
     for link in links:

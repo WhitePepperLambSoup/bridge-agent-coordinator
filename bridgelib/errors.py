@@ -1,6 +1,6 @@
-"""Bridge 错误模型 — 稳定错误代码与分类。
+"""Bridge error model — stable error codes and categories.
 
-设计参考：docs/bridge-design/09-database-events-and-config.md §9
+Design reference: docs/bridge-design/09-database-events-and-config.md §9
 """
 
 from datetime import datetime, timezone
@@ -22,7 +22,7 @@ class ErrorCategory(Enum):
 
 
 class BridgeError(Exception):
-    """稳定错误对象。所有 Bridge 内部错误使用此类或其子类。"""
+    """Stable error object used by all Bridge errors and their subclasses."""
 
     def __init__(
         self,
@@ -64,7 +64,7 @@ class BridgeError(Exception):
         return f"[{self.category.value}] {self.code}: {self.message}"
 
 
-# 便捷子类 — 每个自带正确的 category
+# Convenience subclasses, each with the correct category
 class ConfigError(BridgeError):
     def __init__(self, code: str, message: str, **kwargs):
         super().__init__(code, ErrorCategory.CONFIG, message, **kwargs)

@@ -1,4 +1,4 @@
-"""Bridge 文件生成引擎。"""
+"""Bridge file generation engine."""
 from datetime import datetime
 from bridgelib.i18n import T
 from bridgelib.templates import TEMPLATES
@@ -6,7 +6,7 @@ from bridgelib.templates import TEMPLATES
 # ═══════════════════════════════════════════════════════════════
 
 def _stage_display(stage, lang):
-    """获取流水线阶段的显示名称，处理自定义阶段回退"""
+    """Get a pipeline stage's display name with a custom-stage fallback."""
     key = f"stage.{stage['id']}"
     name = T(key, lang)
     if name == key:
@@ -15,7 +15,7 @@ def _stage_display(stage, lang):
 
 
 def generate_agents_md(mode, agent_a, agent_b, project_name="未命名项目", lang="zh", agent_c=None):
-    """生成 AGENTS.md 内容"""
+    """Generate AGENTS.md content."""
     tmpl = TEMPLATES[mode]
     a_name = agent_a.get('name', 'Agent A')
     a_role = agent_a.get('role', '')
@@ -31,7 +31,7 @@ def generate_agents_md(mode, agent_a, agent_b, project_name="未命名项目", l
     for i, stage in enumerate(tmpl["pipeline"]):
         stages_str += "│  " + str(i+1) + ". " + _stage_display(stage, lang) + " (" + stage['agent'] + ")\n"
 
-    # 根据模式选择串行/并行规则
+    # Select serial or parallel rules based on the mode.
     is_parallel = mode in ("parallel-team", "loop-engineering", "parallel-claim")
     rules_key = "tmpl.agents_rules_parallel" if is_parallel else "tmpl.agents_rules"
     rules = T(rules_key, lang).replace("{name}", a_name.lower())
@@ -44,7 +44,7 @@ def generate_agents_md(mode, agent_a, agent_b, project_name="未命名项目", l
              T("tmpl.agents_roles", lang, a_name=a_name, a_role=a_role, a_model=a_model,
                a_duties=a_duties, b_name=b_name, b_role=b_role, b_model=b_model, b_duties=b_duties)
 
-    # Agent C（如果启用）
+    # Agent C, if enabled.
     if agent_c:
         c_name = agent_c.get('name', 'Agent C')
         c_role = agent_c.get('role', '')
@@ -62,7 +62,7 @@ def generate_agents_md(mode, agent_a, agent_b, project_name="未命名项目", l
 
 
 def generate_collab_md(mode, agent_a, agent_b, pipeline_custom=None, lang="zh"):
-    """生成 COLLAB.md 内容"""
+    """Generate COLLAB.md content."""
     tmpl = TEMPLATES[mode]
     pipeline = pipeline_custom if pipeline_custom else tmpl["pipeline"]
     a_name = agent_a.get('name', 'Agent A')
@@ -75,7 +75,7 @@ def generate_collab_md(mode, agent_a, agent_b, pipeline_custom=None, lang="zh"):
 
 
 def generate_tasks_md(mode, lang="zh"):
-    """生成 tasks.md 模板"""
+    """Generate the tasks.md template."""
     return T("tmpl.tasks_header", lang) + "\n\n---\n\n" + \
            T("tmpl.tasks_meta", lang) + "\n\n---\n\n" + \
            T("tmpl.tasks_notes", lang)
@@ -94,7 +94,7 @@ def generate_acceptance_md(lang="zh"):
 
 
 def generate_readme_md(mode, agent_a, agent_b, project_name, lang="zh"):
-    """生成 README.md"""
+    """Generate README.md."""
     tmpl = TEMPLATES[mode]
     a_name = agent_a.get('name', 'Agent A')
     a_role = agent_a.get('role', '')
@@ -117,11 +117,11 @@ def generate_readme_md(mode, agent_a, agent_b, project_name, lang="zh"):
 
 
 # ═══════════════════════════════════════════════════════════════
-# 并行模式（Parallel-Team）专用生成函数
+# Generation functions specific to Parallel-Team mode
 # ═══════════════════════════════════════════════════════════════
 
 def generate_agent_status_md(agent_name, agent_role, counterpart_name, lang="zh"):
-    """生成单个 agent 的独立状态文件（并行模式核心文件）"""
+    """Generate an agent's independent status file, central to parallel mode."""
     if lang == "zh":
         return f"""# agent-{agent_name.lower()}.md — {agent_name} 状态文件
 
@@ -195,14 +195,14 @@ _None for now_
 
 
 def generate_board_md(agent_a_name, agent_b_name, lang="zh", agent_c_name=None):
-    """生成共享任务看板（并行模式核心）"""
+    """Generate the shared task board, central to parallel mode."""
     table = f"""| 任务ID | 任务名称 | 状态 | OWNER | 复杂度 | 涉及模块 | 验收标准 |
 |--------|---------|------|-------|--------|---------|---------|
 | - | 等待规划 | - | - | - | - | - |""" if lang == "zh" else f"""| Task ID | Name | Status | OWNER | Tier | Module | Acceptance |
 |--------|------|--------|-------|------|--------|------------|
 | - | Awaiting plan | - | - | - | - | - |"""
 
-    # 互斥写规则 — 包含 Agent C
+    # Exclusive-write rules, including Agent C.
     c_mutex_zh = f"\n| 🔒 {'互斥写' if lang == 'zh' else 'Mutex Write'} | `agent-{agent_c_name.lower()}.md` {'只有' if lang == 'zh' else 'only'} {agent_c_name} {'写' if lang == 'zh' else 'writes'} |" if agent_c_name else ""
     c_mutex_en = f"\n| 🔒 {'互斥写' if lang == 'zh' else 'Mutex Write'} | `agent-{agent_c_name.lower()}.md` {'只有' if lang == 'zh' else 'only'} {agent_c_name} {'写' if lang == 'zh' else 'writes'} |" if agent_c_name else ""
     c_mutex = c_mutex_zh if lang == "zh" else c_mutex_en
@@ -263,7 +263,7 @@ def generate_board_md(agent_a_name, agent_b_name, lang="zh", agent_c_name=None):
 
 
 def generate_git_worktree_guide(lang="zh"):
-    """生成 git worktree 隔离指南"""
+    """Generate the Git worktree isolation guide."""
     if lang == "zh":
         return """# GIT_WORKTREE.md — 可选：使用 Git Worktree 实现物理隔离
 
@@ -297,7 +297,7 @@ git worktree add ../worktree-reasonix feature/reasonix
 cd ../worktree-gpt
 # ... 编码、commit、push ...
 
-# 3. Reasonix 在 worktree-reasonix/ 下工作  
+# 3. Reasonix 在 worktree-reasonix/ 下工作
 cd ../worktree-reasonix
 # ... 编码、commit、push ...
 
@@ -385,7 +385,7 @@ git branch -d feature/gpt feature/reasonix
 
 
 def generate_parallel_struct(agent_a_name, agent_b_name, agent_c_name=None, lang="zh"):
-    """生成并行模式的项目结构说明"""
+    """Generate the project structure description for parallel mode."""
     c_section_zh = ""
     c_section_en = ""
     c_flow_a_zh = ""
@@ -511,11 +511,11 @@ Project root/
 
 
 # ═══════════════════════════════════════════════════════════════
-# Loop-Engineering & Parallel-Claim 专用函数
+# Functions specific to Loop-Engineering and Parallel-Claim
 # ═══════════════════════════════════════════════════════════════
 
 def generate_loop_budget_md(lang="zh"):
-    """生成 loop-budget.md — 守护循环不失控"""
+    """Generate loop-budget.md to keep the supervisory loop under control."""
     zh = """# loop-budget.md — 循环预算追踪
 
 > 借鉴 loop.js 的 guards 设计。守卫是「逃脱舱口」，不是「完成」的定义。
@@ -576,7 +576,7 @@ _None_
 
 
 def generate_verify_template(lang="zh"):
-    """生成 verify-template.md — 独立 Verify agent 的裁决模板"""
+    """Generate verify-template.md for independent Verify agent verdicts."""
     zh = """# Verify 裁决：Round N
 
 > ⚠️ **Verify agent 独立裁决。执行 agent 不得自己打分。**（loop.js 核心原则）
@@ -661,7 +661,7 @@ def generate_verify_template(lang="zh"):
 
 
 def generate_spec_claim_template(lang="zh"):
-    """生成 spec claim 模板 — 借鉴 LoopGate 的 claim 机制"""
+    """Generate the spec claim template based on LoopGate's claim mechanism."""
     zh = """# spec-claim-guide.md — Spec 认领机制
 
 > 借鉴 LoopGate 的 "Spec claimed by agent: <unclaimed>" 机制。

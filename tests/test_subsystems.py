@@ -1,8 +1,9 @@
-"""P2 子系统集成测试 — 路由/成本/重试/上下文/回执导入/QA"""
+"""P2 integration tests for routing, cost, retry, context, receipt import, and QA."""
 
 import pytest
 import tempfile
 import os
+import subprocess
 from datetime import datetime, timezone
 
 from bridgelib.database import init_database
@@ -74,7 +75,7 @@ class TestRouting:
     def test_recommend_reviewer(self, coordinator, env):
         pid, planner, implementer, reviewer, gid, tid = env
         result = coordinator.recommend_agent_for_task(tid, role="reviewer")
-        # reviewer 角色应该过滤出有 can_review 权限的 agent
+        # The reviewer role should select agents with can_review permission.
         assert result["recommended_agent_id"] is not None
         assert result["reason"]
 
@@ -108,7 +109,7 @@ class TestContext:
         pid, planner, implementer, reviewer, gid, tid = env
         summary = coordinator.generate_task_context(tid, "task")
         assert summary
-        # 上下文摘要应包含任务 ID
+        # The context summary should include the task ID.
         assert tid in summary
 
 
@@ -127,14 +128,39 @@ class TestQA:
 
 
 class TestArtifactsValidation:
-    def test_valid_artifacts(self, coordinator, env):
+    def test_valid_artifacts(self, coordinator, env, tmp_path):
         pid, planner, implementer, reviewer, gid, tid = env
         coordinator.transition_task(tid, TaskState.PLANNING,
                                      actor="user", confirmed=True)
         coordinator.transition_task(tid, TaskState.READY,
                                      actor="user", confirmed=True)
         coordinator.assign_task(tid, implementer, reviewer, actor="user")
-        # 创建 artifacts 文件
+
+        # Artifact validation now fail-closes when commit provenance is
+        # supplied.  Use a real repository and real commits instead of the
+        # historical placeholder SHAs so this test exercises the production
+        # contract rather than bypassing it.
+        repo = tmp_path / "artifact-repo"
+        repo.mkdir()
+        subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
+        subprocess.run(["git", "config", "user.name", "Bridge Test"], cwd=repo, check=True)
+        subprocess.run(["git", "config", "user.email", "bridge@test.local"], cwd=repo, check=True)
+        (repo / "src").mkdir()
+        (repo / "src" / "main.py").write_text("VALUE = 1\n", encoding="utf-8")
+        subprocess.run(["git", "add", "src/main.py"], cwd=repo, check=True)
+        subprocess.run(["git", "commit", "-m", "initial"], cwd=repo, check=True, capture_output=True)
+        base_commit = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=repo, text=True,
+        ).strip()
+        (repo / "src" / "main.py").write_text("VALUE = 2\n", encoding="utf-8")
+        subprocess.run(["git", "add", "src/main.py"], cwd=repo, check=True)
+        subprocess.run(["git", "commit", "-m", "change"], cwd=repo, check=True, capture_output=True)
+        submission_commit = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=repo, text=True,
+        ).strip()
+        coordinator.db.update_project(pid, root_path=str(repo))
+
+        # Create the artifacts file.
         import json
         d = tempfile.mkdtemp()
         artifacts_path = os.path.join(d, "ARTIFACTS.json")
@@ -144,11 +170,11 @@ class TestArtifactsValidation:
                 "task_id": tid,
                 "attempt": 1,
                 "agent_id": implementer,
-                "base_commit": "abc123",
-                "submission_commit": "def456",
+                "base_commit": base_commit,
+                "submission_commit": submission_commit,
                 "changed_files": [{"path": "src/main.py", "change": "modified"}],
                 "checks": [],
-                "generated_at": "",
+                "generated_at": "2026-01-01T00:00:00Z",
             }, f)
         result = coordinator.validate_artifacts(tid, artifacts_path)
         assert result["valid"] is True

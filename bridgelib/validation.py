@@ -1,12 +1,14 @@
-"""Bridge 声明式验证执行器 — 超时、取消、输出截断、证据收集。
+"""Bridge declarative validation executor with timeouts, cancellation, and evidence.
 
-设计参考：docs/bridge-design/10-adapter-interfaces.md §4 + 06 §验证门禁
+Design references: docs/bridge-design/10-adapter-interfaces.md, section 4,
+and 06, validation gates
 """
 
 import subprocess
 import threading
 import time
 import os
+import shutil
 import hashlib
 import signal
 from dataclasses import dataclass, field
@@ -32,7 +34,7 @@ class ValidationError(Exception):
 
 @dataclass
 class ValidationCheck:
-    """声明式验证规则"""
+    """Declarative validation rule."""
     check_id: str
     executable: str
     args: list[str] = field(default_factory=list)
@@ -67,7 +69,7 @@ class ValidationCheck:
 
 @dataclass
 class ValidationResult:
-    """验证执行结果"""
+    """Validation execution result."""
     check_id: str
     status: ValidationStatus = ValidationStatus.PENDING
     exit_code: int | None = None
@@ -97,7 +99,7 @@ class ValidationResult:
 # ── Validation Executor ───────────────────────────────────
 
 class ValidationExecutor:
-    """验证执行器 — 执行声明式检查并收集结果。"""
+    """Execute declarative checks and collect their results."""
 
     def __init__(self, stop_on_failure: bool = False, project_root: str = ""):
         self.stop_on_failure = stop_on_failure
@@ -110,7 +112,11 @@ class ValidationExecutor:
         self._cancel_event.set()
 
     def execute_all(self, checks: list[ValidationCheck]) -> list[ValidationResult]:
-        """批量执行所有检查。"""
+        """Execute all checks as a batch.
+
+        P1 fix: scope the cancellation listener thread with an Event instead of
+        creating an independent listener thread for every check.
+        """
         results = []
         stop = False
         for check in checks:
@@ -140,11 +146,11 @@ class ValidationExecutor:
 
 def run_check(check: ValidationCheck, project_root: str = "",
               cancel_event: threading.Event | None = None) -> ValidationResult:
-    """执行单个验证检查。"""
+    """Execute a single validation check."""
     start = time.monotonic()
     result = ValidationResult(check_id=check.check_id)
 
-    # ── project_root 安全检查 ────────────────────────────
+    # ── project_root safety check ──────────────────────────
     resolved_wd = check.working_directory  # default: use as-is
     if project_root:
         wd = check.working_directory
@@ -153,7 +159,7 @@ def run_check(check: ValidationCheck, project_root: str = "",
         else:
             resolved_wd = os.path.realpath(os.path.join(project_root, wd))
         abs_root = os.path.realpath(project_root)
-        # 使用 commonpath 判断目录归属，禁止字符串前缀
+        # Use commonpath for containment instead of a string prefix
         try:
             common = os.path.commonpath([resolved_wd, abs_root])
         except ValueError:
@@ -168,22 +174,33 @@ def run_check(check: ValidationCheck, project_root: str = "",
             return result
 
     try:
+        resolved_exe = shutil.which(check.executable) or shutil.which(
+            check.executable, path=resolved_wd
+        )
+        if not resolved_exe:
+            rel_path = os.path.join(resolved_wd, check.executable)
+            resolved_exe = rel_path if os.path.isfile(rel_path) else check.executable
+
         proc = subprocess.Popen(
-            [check.executable] + check.args,
+            [resolved_exe] + check.args,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             cwd=resolved_wd,
-            # 创建新进程组，便于后续清理整棵进程树
             creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == 'nt' else 0,
             start_new_session=True if os.name != 'nt' else False,
         )
 
-        # ── 支持取消（清理整棵进程树）───────────────────
+        # ── Cancellation with a per-check done event for listener cleanup ──
+        check_done = threading.Event()
+        monitor = None
         if cancel_event is not None:
-            def _kill_on_cancel():
-                cancel_event.wait()
-                if proc.poll() is None:
-                    _kill_process_tree(proc)
+            def _kill_on_cancel(p=proc, ev=cancel_event, done=check_done):
+                # Wait for cancellation or check completion, whichever comes first
+                while not done.is_set():
+                    if ev.wait(timeout=0.5):
+                        if p.poll() is None:
+                            _kill_process_tree(p)
+                        return
             monitor = threading.Thread(target=_kill_on_cancel, daemon=True)
             monitor.start()
 
@@ -191,14 +208,17 @@ def run_check(check: ValidationCheck, project_root: str = "",
             stdout_bytes, stderr_bytes = proc.communicate(
                 timeout=check.timeout_seconds
             )
+            # Notify the listener that the check is complete so it can exit
+            check_done.set()
         except subprocess.TimeoutExpired:
+            check_done.set()  # Notify the listener thread
             _kill_process_tree(proc)
             stdout_bytes, stderr_bytes = proc.communicate()
             elapsed = time.monotonic() - start
             result.elapsed_seconds = elapsed
             result.status = ValidationStatus.TIMED_OUT
             result.error_message = f"Timed out after {check.timeout_seconds}s"
-            # 即使超时也尝试截断输出
+            # Truncate output even after a timeout
             result.stdout, result.stdout_truncated = _truncate(
                 stdout_bytes.decode("utf-8", errors="replace"),
                 check.output_limit_bytes,
@@ -213,7 +233,7 @@ def run_check(check: ValidationCheck, project_root: str = "",
         result.elapsed_seconds = elapsed
         result.exit_code = proc.returncode
 
-        # ── 截断输出（字节级） ───────────────────────────
+        # ── Truncate output by byte count ──────────────────
         stdout_text = stdout_bytes.decode("utf-8", errors="replace")
         stderr_text = stderr_bytes.decode("utf-8", errors="replace")
         result.stdout, result.stdout_truncated = _truncate(
@@ -223,7 +243,7 @@ def run_check(check: ValidationCheck, project_root: str = "",
             stderr_text, check.output_limit_bytes
         )
 
-        # ── 检查是否被取消 ──────────────────────────────
+        # ── Check for cancellation ─────────────────────────
         if cancel_event is not None and cancel_event.is_set():
             result.status = ValidationStatus.CANCELLED
         elif proc.returncode == 0:
@@ -241,12 +261,12 @@ def run_check(check: ValidationCheck, project_root: str = "",
         result.elapsed_seconds = time.monotonic() - start
         result.error_message = str(e)
 
-    # ── 计算证据哈希 ──────────────────────────────────
+    # ── Compute the evidence hash ──────────────────────────
     if check.evidence_paths:
         result.evidence_hash = _compute_evidence_hash(
             check.evidence_paths, resolved_wd
         )
-        # 证据文件缺失时标记为 FAILED（而非静默通过）
+        # Mark missing evidence as FAILED instead of silently passing
         missing_evidence = False
         for ep in check.evidence_paths:
             path = os.path.join(resolved_wd, ep)
@@ -262,7 +282,7 @@ def run_check(check: ValidationCheck, project_root: str = "",
 
 
 def _kill_process_tree(proc: subprocess.Popen):
-    """清理整棵进程树（Windows 用 taskkill，Unix 用进程组信号）。"""
+    """Kill the process tree using taskkill on Windows or a process-group signal on Unix."""
     if proc.poll() is not None:
         return
     try:
@@ -272,9 +292,15 @@ def _kill_process_tree(proc: subprocess.Popen):
                 capture_output=True, timeout=10,
             )
         else:
-            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            killpg = getattr(os, "killpg", None)
+            getpgid = getattr(os, "getpgid", None)
+            sigkill = getattr(signal, "SIGKILL", signal.SIGTERM)
+            if callable(killpg) and callable(getpgid):
+                killpg(getpgid(proc.pid), sigkill)
+            else:
+                proc.kill()
     except Exception:
-        # 最后兜底：杀父进程
+        # Last resort: kill the parent process
         try:
             proc.kill()
         except Exception:
@@ -282,7 +308,7 @@ def _kill_process_tree(proc: subprocess.Popen):
 
 
 def _compute_evidence_hash(evidence_paths: list[str], working_dir: str) -> str:
-    """计算证据文件的 SHA256 哈希。"""
+    """Compute the SHA256 hash of evidence files."""
     if not evidence_paths:
         return ""
     h = hashlib.sha256()
@@ -304,11 +330,11 @@ def _compute_evidence_hash(evidence_paths: list[str], working_dir: str) -> str:
 
 
 def _truncate(text: str, limit: int) -> tuple[str, bool]:
-    """字节级截断：先编码为 utf-8，按字节截断，再安全解码。"""
+    """Truncate by byte count using UTF-8 encoding and safe decoding."""
     encoded = text.encode("utf-8")
     if len(encoded) <= limit:
         return text, False
     truncated_bytes = encoded[:limit]
-    # 安全解码，忽略末尾不完整字符
+    # Decode safely, ignoring an incomplete trailing character
     decoded = truncated_bytes.decode("utf-8", errors="ignore")
     return decoded + f"\n... [truncated at {limit} bytes]", True

@@ -1,6 +1,6 @@
-"""Bridge 成本追踪与预算守卫 — token/费用估算、阈值检查。
+"""Bridge cost tracking and budget guard — token and cost estimates with threshold checks.
 
-设计参考：docs/bridge-design/04-agent-routing-and-cost.md §预算守卫
+Design reference: docs/bridge-design/04-agent-routing-and-cost.md §Budget Guard
 """
 
 import threading
@@ -37,7 +37,7 @@ class CostRecord:
 
 
 class CostTracker:
-    """成本追踪器"""
+    """Track token usage and estimated costs."""
 
     def __init__(self):
         self._records: list[CostRecord] = []
@@ -55,6 +55,19 @@ class CostTracker:
         with self._lock:
             self._records.append(record)
         return record
+
+    def discard(self, record: CostRecord) -> None:
+        """Remove a record after a persistence failure.
+
+        The coordinator writes the in-memory record before inserting the
+        authoritative SQLite row.  This compensating operation keeps the
+        runtime view consistent when that database write fails.
+        """
+        with self._lock:
+            try:
+                self._records.remove(record)
+            except ValueError:
+                pass
 
     def total_tokens(self) -> int:
         return sum(r.input_tokens + r.output_tokens for r in self._records)
@@ -79,7 +92,7 @@ class CostTracker:
 
 
 class BudgetGuard:
-    """预算守卫 — 多级阈值检查。"""
+    """Budget guard with multiple threshold levels."""
 
     def __init__(self, task_token_budget: int = 50000,
                  task_cost_budget: float = 0.50,

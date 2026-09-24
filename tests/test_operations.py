@@ -1,4 +1,4 @@
-"""Phase 3.3 测试 — 操作日志与崩溃恢复"""
+"""Phase 3.3 tests - operation logs and crash recovery."""
 
 import pytest
 from datetime import datetime, timezone
@@ -50,7 +50,7 @@ class TestOperationLog:
         assert retrieved.operation_type == "merge"
 
     def test_list_incomplete(self, log):
-        """未完成的操作（PREPARED 状态）"""
+        """Incomplete operations have PREPARED status."""
         e1 = OperationEntry.prepare("worktree_create", task_id="TASK-001")
         e2 = OperationEntry.prepare("cherry_pick", task_id="TASK-002")
         e3 = OperationEntry.prepare("merge", task_id="TASK-003")
@@ -58,7 +58,7 @@ class TestOperationLog:
         log.record(e2)
         log.record(e3)
 
-        # 完成其中一个
+        # Complete one operation.
         e2.mark_completed("ok")
         log.update(e2)
 
@@ -75,13 +75,13 @@ class TestOperationLog:
         assert len(task_ops) == 2
 
     def test_idempotency_key_deduplication(self, log):
-        """相同幂等键不应重复记录"""
+        """The same idempotency key cannot be recorded twice."""
         entry = OperationEntry.prepare(
             "merge", task_id="TASK-001",
             idempotency_key="key-123",
         )
         log.record(entry)
-        # 尝试再次记录相同 key
+        # Try to record the same key again.
         entry2 = OperationEntry.prepare(
             "merge", task_id="TASK-001",
             idempotency_key="key-123",
@@ -94,7 +94,7 @@ class TestOperationLog:
 
 
 class TestRecoveryScanner:
-    """崩溃恢复扫描器"""
+    """Crash recovery scanner."""
 
     @pytest.fixture
     def log(self):
@@ -106,7 +106,7 @@ class TestRecoveryScanner:
         assert len(actions) == 0
 
     def test_scan_with_incomplete_ops(self, log):
-        # 记录一些未完成的操作
+        # Record some incomplete operations.
         e1 = OperationEntry.prepare("worktree_create", task_id="TASK-001")
         e2 = OperationEntry.prepare("cherry_pick", task_id="TASK-002")
         log.record(e1)

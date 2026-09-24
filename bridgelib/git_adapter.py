@@ -1,11 +1,11 @@
-"""Bridge GitRepositoryAdapter — 真实 Git 操作封装。
+"""Bridge GitRepositoryAdapter: a wrapper around real Git operations.
 
-设计参考：docs/bridge-design/10-adapter-interfaces.md §3 + 06 §Git/Worktree
-原则：
-- 使用参数数组，不拼接 shell 字符串
-- 路径规范化并验证范围
-- 返回结构化结果
-- 所有写操作需操作 ID 和确认上下文
+Design references: docs/bridge-design/10-adapter-interfaces.md section 3 and 06 Git/Worktree
+Principles:
+- Use argument arrays instead of concatenating shell strings
+- Normalize paths and validate their scope
+- Return structured results
+- Require an operation ID and confirmation context for all write operations
 """
 
 import os
@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 
 class GitAdapterError(Exception):
-    """Git 操作错误"""
+    """Git operation error."""
     def __init__(self, message: str, operation: str = "", stderr: str = ""):
         self.operation = operation
         self.stderr = stderr
@@ -27,13 +27,13 @@ class GitAdapterError(Exception):
 
 @dataclass
 class GitStatus:
-    """Git 仓库状态快照"""
+    """Snapshot of Git repository status."""
     is_repo: bool = False
-    is_worktree: bool = False  # .git 是文件（worktree）还是目录
+    is_worktree: bool = False  # Whether .git is a file (worktree) rather than a directory
     current_branch: str = ""
     head_commit: str = ""
     has_remote: bool = False
-    is_dirty: bool = False     # 有未提交修改
+    is_dirty: bool = False     # Whether there are uncommitted changes
     has_untracked: bool = False
     detached_head: bool = False
     error: str = ""
@@ -41,7 +41,7 @@ class GitStatus:
 
 @dataclass
 class GitDiffResult:
-    """Git diff 结果"""
+    """Git diff result."""
     files_changed: list[str] = field(default_factory=list)
     diff_summary: str = ""
     insertions: int = 0
@@ -51,7 +51,7 @@ class GitDiffResult:
 
 @dataclass
 class GitOperationResult:
-    """Git 操作结果"""
+    """Git operation result."""
     success: bool = False
     operation: str = ""
     commit: str = ""
@@ -62,7 +62,7 @@ class GitOperationResult:
 
 
 class GitRepositoryAdapter:
-    """Git 仓库适配器 — 所有 Git 操作通过参数数组执行。"""
+    """Git repository adapter that executes all Git operations with argument arrays."""
 
     def __init__(self, repo_path: str):
         self.repo_path = os.path.realpath(repo_path)
@@ -70,11 +70,11 @@ class GitRepositoryAdapter:
             raise GitAdapterError(f"Not a directory: {self.repo_path}")
 
     # ═══════════════════════════════════════════════════════
-    # 只读检查
+    # Read-only checks
     # ═══════════════════════════════════════════════════════
 
     def check_repo(self) -> GitStatus:
-        """检查仓库状态。"""
+        """Check repository status."""
         status = GitStatus()
 
         git_path = os.path.join(self.repo_path, ".git")
@@ -88,7 +88,7 @@ class GitRepositoryAdapter:
             status.error = f"Not a git repository: {self.repo_path}"
             return status
 
-        # 当前分支
+        # Current branch
         r = self._run(["git", "rev-parse", "--abbrev-ref", "HEAD"])
         if r.returncode == 0:
             branch = r.stdout.strip()
@@ -118,25 +118,73 @@ class GitRepositoryAdapter:
         return status
 
     def commit_exists(self, commit: str) -> bool:
-        """检查 commit 是否存在。"""
-        r = self._run(["git", "cat-file", "-e", commit])
+        """Check whether an object exists and is a commit, not a blob, tree, or tag.
+
+        P0 fix: Use commit^{commit} syntax to ensure the object is a commit
+        instead of an arbitrary Git object, so a blob is not mistaken for one.
+        """
+        r = self._run(["git", "cat-file", "-e", f"{commit}^{{commit}}"])
         return r.returncode == 0
 
+    def verify_commit_strict(self, commit: str) -> bool:
+        """Strictly verify that a commit exists and has the correct type; fail closed."""
+        r = self._run(["git", "rev-parse", "--verify", f"{commit}^{{commit}}"])
+        return r.returncode == 0
+
+    def resolve_commit_sha(self, commit: str, cwd: str | None = None) -> str:
+        """Resolve a ref to its canonical full commit SHA, or return an empty string."""
+        r = self._run(
+            ["git", "rev-parse", "--verify", f"{commit}^{{commit}}"],
+            cwd=cwd,
+        )
+        return r.stdout.strip() if r.returncode == 0 else ""
+
+    def is_ancestor(self, base_commit: str, target_commit: str) -> bool:
+        """Return whether base_commit is reachable from target_commit."""
+        r = self._run(["git", "merge-base", "--is-ancestor", base_commit, target_commit])
+        return r.returncode == 0
+
+    def verify_commit_provenance(
+        self,
+        base_commit: str,
+        submission_commit: str,
+        worktree_path: str = "",
+    ) -> tuple[bool, str, str]:
+        """Validate a submission SHA against the recorded base and worktree HEAD."""
+        base_sha = self.resolve_commit_sha(base_commit)
+        submission_sha = self.resolve_commit_sha(submission_commit)
+        if not base_sha:
+            return False, "base_commit is not a valid commit", ""
+        if not submission_sha:
+            return False, "submission_commit is not a valid commit", ""
+        if submission_commit.lower() != submission_sha:
+            return False, "submission_commit must be the canonical full 40-character SHA", submission_sha
+        if not self.is_ancestor(base_sha, submission_sha):
+            return False, "submission_commit is not based on the recorded base_commit", submission_sha
+        if worktree_path:
+            worktree_head = self.resolve_commit_sha("HEAD", cwd=worktree_path)
+            if worktree_head != submission_sha:
+                return False, "submission_commit does not match the current attempt worktree HEAD", submission_sha
+        return True, "", submission_sha
+
     def get_diff(self, base_commit: str, target_commit: str = "HEAD") -> GitDiffResult:
-        """获取两个 commit 之间的 diff。"""
+        """Get the diff between two commits."""
         result = GitDiffResult()
 
-        # 文件列表
+        # File list
         r = self._run(["git", "diff", "--name-only", base_commit, target_commit])
         if r.returncode == 0:
             result.files_changed = [f for f in r.stdout.strip().split("\n") if f]
+        else:
+            result.error = r.stderr.strip() or r.stdout.strip() or "git diff failed"
+            return result
 
-        # 统计
+        # Statistics
         r = self._run(["git", "diff", "--stat", base_commit, target_commit])
         if r.returncode == 0:
             result.diff_summary = r.stdout.strip()
 
-        # 行数统计
+        # Line statistics
         r = self._run(["git", "diff", "--shortstat", base_commit, target_commit])
         if r.returncode == 0 and r.stdout.strip():
             result.diff_summary = r.stdout.strip()
@@ -144,19 +192,19 @@ class GitRepositoryAdapter:
         return result
 
     def get_branch_base(self, branch: str, target_branch: str = "main") -> str:
-        """获取分支的 merge-base。"""
+        """Get the merge base of a branch."""
         r = self._run(["git", "merge-base", target_branch, branch])
         if r.returncode == 0:
             return r.stdout.strip()
         return ""
 
     # ═══════════════════════════════════════════════════════
-    # 写操作（需操作 ID 和确认上下文）
+    # Write operations (require an operation ID and confirmation context)
     # ═══════════════════════════════════════════════════════
 
     def create_branch(self, branch_name: str, base: str = "HEAD",
                       operation_id: str = "") -> GitOperationResult:
-        """创建分支。"""
+        """Create a branch."""
         r = self._run(["git", "branch", branch_name, base])
         return GitOperationResult(
             success=(r.returncode == 0),
@@ -167,7 +215,7 @@ class GitRepositoryAdapter:
 
     def cherry_pick(self, commit: str, operation_id: str = "",
                     allow_empty: bool = False) -> GitOperationResult:
-        """Cherry-pick 一个 commit。"""
+        """Cherry-pick a commit."""
         args = ["git", "cherry-pick"]
         if allow_empty:
             args.append("--allow-empty")
@@ -184,7 +232,7 @@ class GitRepositoryAdapter:
         return result
 
     def abort_cherry_pick(self) -> GitOperationResult:
-        """中止 cherry-pick。"""
+        """Abort a cherry-pick."""
         r = self._run(["git", "cherry-pick", "--abort"])
         return GitOperationResult(
             success=(r.returncode == 0),
@@ -193,7 +241,7 @@ class GitRepositoryAdapter:
 
     def merge_branch(self, branch: str, operation_id: str = "",
                      no_ff: bool = False) -> GitOperationResult:
-        """合并分支。"""
+        """Merge a branch."""
         args = ["git", "merge", branch]
         if no_ff:
             args.append("--no-ff")
@@ -209,7 +257,7 @@ class GitRepositoryAdapter:
         return result
 
     def abort_merge(self) -> GitOperationResult:
-        """中止合并。"""
+        """Abort a merge."""
         r = self._run(["git", "merge", "--abort"])
         return GitOperationResult(
             success=(r.returncode == 0),
@@ -217,7 +265,7 @@ class GitRepositoryAdapter:
         )
 
     def revert_commit(self, commit: str, operation_id: str = "") -> GitOperationResult:
-        """Revert 一个已合并的 commit（创建新提交，不重写历史）。"""
+        """Revert a merged commit by creating a new commit without rewriting history."""
         r = self._run(["git", "revert", "--no-edit", commit])
         return GitOperationResult(
             success=(r.returncode == 0),
@@ -227,7 +275,7 @@ class GitRepositoryAdapter:
         )
 
     def checkout_branch(self, branch: str, operation_id: str = "") -> GitOperationResult:
-        """切换分支。若工作区有未提交修改则拒绝。"""
+        """Switch branches, refusing when the working tree has uncommitted changes."""
         status = self.check_repo()
         if status.is_dirty:
             return GitOperationResult(
@@ -248,7 +296,7 @@ class GitRepositoryAdapter:
 
     def create_worktree(self, path: str, branch: str,
                         operation_id: str = "") -> GitOperationResult:
-        """创建 worktree。路径必须在允许范围内。"""
+        """Create a worktree; its path must be within the allowed scope."""
         if os.path.exists(path):
             return GitOperationResult(
                 success=False, operation="create_worktree",
@@ -263,15 +311,43 @@ class GitRepositoryAdapter:
         )
 
     def remove_worktree(self, path: str, force: bool = False,
-                        operation_id: str = "") -> GitOperationResult:
-        """删除 worktree。force=False 时拒绝删除有未提交修改的。"""
-        # 安全检查：确保路径在合理范围内
+                        operation_id: str = "",
+                        bridge_owned_paths: set | None = None) -> GitOperationResult:
+        """Remove a worktree.
+
+        P1 fix:
+        - Verify that the path is in bridge_owned_paths, the set of Bridge-managed paths
+          supplied by the coordinator
+        - Do not rely solely on list_worktrees, which also lists user-created worktrees
+        - Use operation_id to track the operation
+        """
         abs_path = os.path.realpath(path)
         if not os.path.exists(abs_path):
             return GitOperationResult(
                 success=False, operation="remove_worktree",
                 error=f"Path does not exist: {path}"
             )
+
+        # Safety check: verify that the path is a Bridge-managed worktree.
+        if bridge_owned_paths is not None:
+            bridge_paths_real = {os.path.realpath(p) for p in bridge_owned_paths}
+            if abs_path not in bridge_paths_real:
+                return GitOperationResult(
+                    success=False, operation="remove_worktree",
+                    error=f"Path '{path}' is not a Bridge-managed worktree — "
+                          f"refusing to remove non-Bridge directory"
+                )
+        else:
+            # Fallback: check whether the path is under the .bridge-worktrees directory.
+            if ".bridge-worktrees" not in abs_path:
+                return GitOperationResult(
+                    success=False, operation="remove_worktree",
+                    error=f"Path '{path}' is not under .bridge-worktrees — "
+                          f"refusing to remove non-Bridge directory"
+                )
+
+        if not operation_id:
+            logger.warning("remove_worktree called without operation_id")
 
         args = ["git", "worktree", "remove"]
         if force:
@@ -285,12 +361,12 @@ class GitRepositoryAdapter:
         )
 
     def list_worktrees(self) -> list[dict]:
-        """列出所有 worktree。"""
+        """List all worktrees."""
         r = self._run(["git", "worktree", "list", "--porcelain"])
         if r.returncode != 0:
             return []
         worktrees = []
-        current = {}
+        current: dict[str, object] = {}
         for line in r.stdout.strip().split("\n"):
             if line.startswith("worktree "):
                 if current:
@@ -312,12 +388,14 @@ class GitRepositoryAdapter:
 
     def _run(self, args: list[str], timeout: int = 30,
              cwd: str | None = None) -> subprocess.CompletedProcess:
-        """执行 git 命令（参数数组，不拼接 shell）。"""
+        """Execute a Git command with an argument array, without invoking a shell."""
         try:
             return subprocess.run(
                 args,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=timeout,
                 cwd=cwd or self.repo_path,
             )
@@ -333,7 +411,7 @@ class GitRepositoryAdapter:
             )
 
     def _get_conflict_files(self) -> list[str]:
-        """获取冲突文件列表。"""
+        """Get the list of files with conflicts."""
         r = self._run(["git", "diff", "--name-only", "--diff-filter=U"])
         if r.returncode == 0:
             return [f for f in r.stdout.strip().split("\n") if f]

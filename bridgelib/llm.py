@@ -1,4 +1,4 @@
-"""Bridge LLM 集成模块。"""
+"""Bridge LLM integration module."""
 import json
 import urllib.request
 import urllib.error
@@ -7,17 +7,17 @@ from bridgelib.templates import TEMPLATES
 # ═══════════════════════════════════════════════════════════════
 
 def call_llm(api_key, api_base, model, system_prompt, user_prompt, timeout=30):
-    """调用 OpenAI 兼容 API"""
+    """Call an OpenAI-compatible API."""
     from urllib.parse import urlparse
 
     api_base = api_base.strip()
     parsed = urlparse(api_base)
 
-    # 安全校验：只允许 https 或真正的 localhost/127.0.0.1
+    # Security validation: allow only HTTPS or genuine local addresses.
     if parsed.scheme == "https":
         pass  # OK
     elif parsed.scheme == "http":
-        # 严格检查 hostname 是否为 localhost 或 127.0.0.1（不能用 startswith）
+        # Check the hostname exactly; a prefix check would be unsafe.
         allowed_hosts = {"localhost", "127.0.0.1", "::1"}
         if parsed.hostname not in allowed_hosts:
             raise ValueError(
@@ -57,7 +57,7 @@ def call_llm(api_key, api_base, model, system_prompt, user_prompt, timeout=30):
 
 
 def llm_enhance_description(api_key, api_base, model, user_input, mode_name):
-    """用 LLM 理解用户输入并增强项目描述"""
+    """Use an LLM to interpret user input and enrich the project description."""
     system_prompt = f"""你是一个 AI Agent 协作框架的配置助手。用户选择了「{mode_name}」协作模式。
 请根据用户的描述，简洁地提取以下信息（JSON 格式）：
 {{
@@ -70,7 +70,7 @@ def llm_enhance_description(api_key, api_base, model, user_input, mode_name):
 只输出 JSON，不要其他内容。"""
 
     result = call_llm(api_key, api_base, model, system_prompt, user_input)
-    # 尝试提取 JSON
+    # Try to extract JSON.
     result = result.strip()
     if result.startswith("```"):
         result = result.split("\n", 1)[1]
@@ -80,4 +80,4 @@ def llm_enhance_description(api_key, api_base, model, user_input, mode_name):
 
 
 # ═══════════════════════════════════════════════════════════════
-# GUI 界面
+# GUI interface

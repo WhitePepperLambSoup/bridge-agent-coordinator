@@ -1,4 +1,4 @@
-"""Phase 2.2 测试 — 路径范围检查（允许/禁止路径、glob 匹配、越界检测）"""
+"""Phase 2.2 tests for allowed/forbidden paths, globs, and scope violations."""
 
 import os
 import tempfile
@@ -15,10 +15,10 @@ from bridgelib.scope import (
 
 
 class TestNormalizePath:
-    """路径规范化"""
+    """Test path normalization."""
 
     def test_absolute_path(self):
-        # normalize_path 输出统一使用 /
+        # normalize_path consistently uses forward slashes.
         result = normalize_path("/tmp/test/file.py")
         assert result == "/tmp/test/file.py"
 
@@ -27,7 +27,7 @@ class TestNormalizePath:
         assert "src" in result
 
     def test_traversal_blocked(self):
-        """.. 被规范化移除（当有足够的父目录可解析时）"""
+        """Remove .. when enough parent directories can be resolved."""
         result = normalize_path("src/sub/../../etc/passwd")
         assert ".." not in result
         assert result == "etc/passwd"
@@ -38,7 +38,7 @@ class TestNormalizePath:
 
 
 class TestGlobMatching:
-    """Glob 模式匹配"""
+    """Test glob pattern matching."""
 
     def test_exact_match(self):
         assert matches_glob("src/auth/service.py", "src/auth/service.py")
@@ -62,7 +62,7 @@ class TestGlobMatching:
 
 
 class TestScopeChecker:
-    """范围检查器"""
+    """Test the scope checker."""
 
     def test_allowed_path_passes(self):
         checker = ScopeChecker(
@@ -91,7 +91,7 @@ class TestScopeChecker:
         assert any("not in allowed" in v.reason.lower() for v in violations)
 
     def test_exact_forbidden_overrides_allowed(self):
-        """精确禁止路径覆盖通配允许"""
+        """Let an exact forbidden path override a wildcard allowance."""
         checker = ScopeChecker(
             allowed=["src/**"],
             forbidden=["src/secrets/**"],
@@ -111,10 +111,10 @@ class TestScopeChecker:
             "docs/readme.md",
         ]
         results = checker.check_batch(files)
-        assert not results["src/main.py"]       # 通过
-        assert not results["tests/test_main.py"]  # 通过
-        assert results[".bridge/runtime/db"]     # 禁止
-        assert results["docs/readme.md"]         # 不在允许范围
+        assert not results["src/main.py"]       # Passes.
+        assert not results["tests/test_main.py"]  # Passes.
+        assert results[".bridge/runtime/db"]     # Forbidden.
+        assert results["docs/readme.md"]         # Outside the allowed scope.
 
     def test_scope_violation_str(self):
         v = ScopeViolation("src/secrets/key.env", "Path matches forbidden pattern: src/secrets/**")
@@ -123,7 +123,7 @@ class TestScopeChecker:
 
 
 class TestIsWithinScope:
-    """便捷函数 is_within_scope"""
+    """Test the is_within_scope convenience function."""
 
     def test_within_allowed_only(self):
         assert is_within_scope("src/main.py", allowed=["src/**"])

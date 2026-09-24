@@ -1,6 +1,7 @@
-"""Bridge 审查系统 — 审查请求、裁决、修复任务、升级路径。
+"""Bridge review system for requests, verdicts, fix tasks, and escalation paths.
 
-设计参考：docs/bridge-design/04-agent-routing-and-cost.md §审查包 + 08 §审查中心
+Design references: docs/bridge-design/04-agent-routing-and-cost.md, review packages,
+and 08, review center
 """
 
 import secrets
@@ -25,7 +26,7 @@ class ReviewError(Exception):
 
 @dataclass
 class ReviewPackage:
-    """审查包 — 提供给审查 Agent 的最小上下文。"""
+    """Minimal context package provided to the reviewing agent."""
     task_id: str
     title: str
     objective: str = ""
@@ -99,7 +100,7 @@ class ReviewResult:
 # ── Review Manager ────────────────────────────────────────
 
 class ReviewManager:
-    """审查管理器"""
+    """Manage review requests and results."""
 
     def __init__(self):
         self._requests: dict[str, ReviewRequest] = {}
@@ -111,14 +112,14 @@ class ReviewManager:
         self, task_id: str, reviewer_agent_id: str, review_package: ReviewPackage
     ) -> ReviewRequest:
         with self._lock:
-            # 校验 review_package 的 task_id 与请求一致
+            # Verify that review_package and the request have the same task_id
             if review_package.task_id != task_id:
                 raise ReviewError(
                     f"Review package task_id ({review_package.task_id}) "
                     f"does not match request task_id ({task_id})"
                 )
 
-            # 检查同一任务是否有 pending 审查
+            # Check for an existing pending review for the same task
             pending = self._find_pending_by_task(task_id)
             if pending:
                 raise ReviewError(
@@ -146,7 +147,7 @@ class ReviewManager:
             if req is None:
                 raise ReviewError(f"Review request {request_id} not found")
 
-            # 防止重复完成
+            # Prevent duplicate completion
             if request_id in self._results:
                 raise ReviewError(
                     f"Review {request_id} has already been completed "

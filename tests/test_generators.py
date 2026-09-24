@@ -1,4 +1,4 @@
-"""Phase 0 回归测试 — 模板与生成器"""
+"""Phase 0 regression tests - templates and generators."""
 
 import pytest
 from bridgelib.templates import TEMPLATES
@@ -14,10 +14,10 @@ from bridgelib.generators import (
 
 
 class TestTemplates:
-    """TEMPLATES 配置完整性测试"""
+    """TEMPLATES configuration completeness tests."""
 
     def test_seven_modes_exist(self):
-        """七种协作模式已定义"""
+        """The seven collaboration modes are defined."""
         expected = [
             "architect-engineer", "peer-review", "spec-driven",
             "quick-start", "parallel-team", "loop-engineering",
@@ -27,7 +27,7 @@ class TestTemplates:
             assert mode in TEMPLATES, f"Missing mode: {mode}"
 
     def test_each_mode_has_required_fields(self):
-        """每个模式有 name/description/icon/pipeline/agent_a/agent_b"""
+        """Each mode has name, description, icon, pipeline, agent_a, and agent_b."""
         for key, tmpl in TEMPLATES.items():
             assert "name" in tmpl, f"{key} missing name"
             assert "description" in tmpl, f"{key} missing description"
@@ -37,7 +37,7 @@ class TestTemplates:
             assert "agent_b" in tmpl, f"{key} missing agent_b"
 
     def test_each_pipeline_stage_has_id_agent(self):
-        """每个流水线阶段有 id 和 agent"""
+        """Each pipeline stage has an id and an agent."""
         for key, tmpl in TEMPLATES.items():
             for stage in tmpl["pipeline"]:
                 assert "id" in stage, f"{key} stage missing id"
@@ -46,7 +46,7 @@ class TestTemplates:
 
 
 class TestAgentsMdGeneration:
-    """generate_agents_md 测试"""
+    """Tests for generate_agents_md."""
 
     def test_basic_generation_zh(self):
         agent_a = {"name": "GPT", "role": "架构师", "model": "gpt-5"}
@@ -65,7 +65,7 @@ class TestAgentsMdGeneration:
         assert "AGENTS.md" in result
         assert "GPT" in result
         assert "Reasonix" in result
-        # 英文输出不含中文
+        # English output contains no Chinese text.
         has_chinese = any('\u4e00' <= ch <= '\u9fff' for ch in result)
         assert not has_chinese, f"English AGENTS.md contains Chinese"
 
@@ -89,7 +89,7 @@ class TestAgentsMdGeneration:
 
 
 class TestBoardMdGeneration:
-    """generate_board_md 测试"""
+    """Tests for generate_board_md."""
 
     def test_basic_board_zh(self):
         result = generate_board_md("GPT", "Reasonix", "zh")
@@ -111,7 +111,7 @@ class TestBoardMdGeneration:
 
 
 class TestAgentStatusGeneration:
-    """generate_agent_status_md 测试"""
+    """Tests for generate_agent_status_md."""
 
     def test_status_zh(self):
         result = generate_agent_status_md("GPT", "Architect", "Reasonix", "zh")
@@ -126,7 +126,7 @@ class TestAgentStatusGeneration:
 
 
 class TestWorktreeGuide:
-    """generate_git_worktree_guide 测试"""
+    """Tests for generate_git_worktree_guide."""
 
     def test_worktree_zh(self):
         result = generate_git_worktree_guide("zh")
@@ -142,7 +142,7 @@ class TestWorktreeGuide:
 
 
 class TestParallelStruct:
-    """generate_parallel_struct 测试"""
+    """Tests for generate_parallel_struct."""
 
     def test_parallel_zh(self):
         result = generate_parallel_struct("GPT", "Reasonix", lang="zh")
@@ -162,7 +162,7 @@ class TestParallelStruct:
 
 
 class TestCollabMdGeneration:
-    """generate_collab_md 测试"""
+    """Tests for generate_collab_md."""
 
     def test_collab_generation(self):
         agent_a = {"name": "GPT", "role": "Planner"}

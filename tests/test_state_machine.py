@@ -1,4 +1,4 @@
-"""Phase 1.4 测试 — 任务状态机与推进策略"""
+"""Phase 1.4 tests for the task state machine and progression policies."""
 
 import pytest
 from bridgelib.state_machine import (
@@ -12,7 +12,7 @@ from bridgelib.state_machine import (
 
 
 class TestTaskStateEnum:
-    """任务状态枚举"""
+    """Test the task state enum."""
 
     def test_all_17_states_defined(self):
         expected = [
@@ -25,7 +25,7 @@ class TestTaskStateEnum:
             assert hasattr(TaskState, s), f"Missing state: {s}"
 
     def test_terminal_states(self):
-        """DONE 和 CANCELLED 是终态"""
+        """Treat DONE and CANCELLED as terminal states."""
         assert TaskState.is_terminal(TaskState.DONE)
         assert TaskState.is_terminal(TaskState.CANCELLED)
         assert not TaskState.is_terminal(TaskState.DRAFT)
@@ -33,7 +33,7 @@ class TestTaskStateEnum:
 
 
 class TestValidTransitions:
-    """合法状态转换"""
+    """Test valid state transitions."""
 
     def test_draft_to_planning(self):
         assert is_valid_transition(TaskState.DRAFT, TaskState.PLANNING)
@@ -103,10 +103,10 @@ class TestValidTransitions:
 
 
 class TestInvalidTransitions:
-    """非法状态转换"""
+    """Test invalid state transitions."""
 
     def test_done_to_anything(self):
-        """终态不能转换到任何其他状态"""
+        """Prevent transitions from a terminal state to any other state."""
         for target in TaskState:
             if target != TaskState.DONE:
                 assert not is_valid_transition(TaskState.DONE, target), \
@@ -119,19 +119,19 @@ class TestInvalidTransitions:
                     f"CANCELLED -> {target.name} should be invalid"
 
     def test_skip_states(self):
-        """不能跳过状态"""
+        """Prevent skipped states."""
         assert not is_valid_transition(TaskState.DRAFT, TaskState.IN_PROGRESS)
         assert not is_valid_transition(TaskState.READY, TaskState.SUBMITTED)
         assert not is_valid_transition(TaskState.IN_PROGRESS, TaskState.APPROVED)
 
     def test_backward_jump(self):
-        """不能向后跳转"""
+        """Prevent backward transitions."""
         assert not is_valid_transition(TaskState.VALIDATING, TaskState.DRAFT)
         assert not is_valid_transition(TaskState.MERGING, TaskState.PLANNING)
 
 
 class TestGetAllowedTransitions:
-    """获取允许的目标状态列表"""
+    """Test retrieval of allowed target states."""
 
     def test_draft_transitions(self):
         allowed = get_allowed_transitions(TaskState.DRAFT)
@@ -149,10 +149,10 @@ class TestGetAllowedTransitions:
 
 
 class TestValidateTransition:
-    """转换验证（含推进策略）"""
+    """Test transition validation with progression policies."""
 
     def test_valid_manual_transition(self):
-        """Manual 策略：所有转换都需要用户确认（但本身合法）"""
+        """Require user confirmation for every valid Manual transition."""
         result = validate_transition(
             TaskState.DRAFT, TaskState.PLANNING, ProgressionPolicy.MANUAL
         )
@@ -160,12 +160,12 @@ class TestValidateTransition:
         assert result.requires_confirmation
 
     def test_valid_automatic_transition(self):
-        """Automatic 策略：低风险转换不需要确认"""
+        """Do not require confirmation for low-risk Automatic transitions."""
         result = validate_transition(
             TaskState.IN_PROGRESS, TaskState.SUBMITTED, ProgressionPolicy.AUTOMATIC
         )
         assert result.is_valid
-        # SUBMITTED 是 Agent 提交的，导入回执后通常自动推进
+        # SUBMITTED comes from an agent and usually advances after receipt import.
 
     def test_invalid_transition_raises(self):
         with pytest.raises(StateMachineError):
@@ -174,12 +174,12 @@ class TestValidateTransition:
             )
 
     def test_hybrid_high_risk_requires_confirmation(self):
-        """Hybrid 策略：高风险转换需要确认"""
+        """Require confirmation for high-risk Hybrid transitions."""
         result = validate_transition(
             TaskState.VALIDATING, TaskState.ESCALATED, ProgressionPolicy.HYBRID
         )
         assert result.is_valid
-        # 升级到强模型通常需要用户确认
+        # Escalation to a strong model usually requires user confirmation.
 
     def test_all_policies_reject_invalid(self):
         for policy in ProgressionPolicy:
@@ -188,7 +188,7 @@ class TestValidateTransition:
 
 
 class TestProgressionPolicy:
-    """推进策略枚举"""
+    """Test the progression policy enum."""
 
     def test_three_policies(self):
         policies = list(ProgressionPolicy)
@@ -198,10 +198,10 @@ class TestProgressionPolicy:
 
 
 class TestStateMachineIntegration:
-    """状态机集成测试：模拟典型任务生命周期"""
+    """Exercise the state machine with typical task lifecycles."""
 
     def test_happy_path(self):
-        """标准生命周期：Draft → Done"""
+        """Exercise the standard lifecycle from Draft to Done."""
         path = [
             (TaskState.DRAFT, TaskState.PLANNING),
             (TaskState.PLANNING, TaskState.READY),
@@ -218,26 +218,26 @@ class TestStateMachineIntegration:
             assert is_valid_transition(from_s, to_s), f"{from_s.name} -> {to_s.name}"
 
     def test_revision_loop(self):
-        """修复循环：Validating → RevisionRequired → Assigned → ..."""
+        """Exercise the Validating to RevisionRequired repair loop."""
         assert is_valid_transition(TaskState.VALIDATING, TaskState.REVISION_REQUIRED)
         assert is_valid_transition(TaskState.REVISION_REQUIRED, TaskState.ASSIGNED)
 
     def test_escalation_path(self):
-        """升级路径：Validating → Escalated → Assigned"""
+        """Exercise the Validating to Escalated path."""
         assert is_valid_transition(TaskState.VALIDATING, TaskState.ESCALATED)
         assert is_valid_transition(TaskState.ESCALATED, TaskState.ASSIGNED)
 
     def test_conflict_recovery(self):
-        """冲突恢复：Merging → Conflict → Assigned"""
+        """Recover from Conflict after Merging."""
         assert is_valid_transition(TaskState.MERGING, TaskState.CONFLICT)
         assert is_valid_transition(TaskState.CONFLICT, TaskState.ASSIGNED)
 
     def test_blocked_recovery(self):
-        """阻塞恢复：InProgress → Blocked → Assigned"""
+        """Recover from Blocked after InProgress."""
         assert is_valid_transition(TaskState.IN_PROGRESS, TaskState.BLOCKED)
         assert is_valid_transition(TaskState.BLOCKED, TaskState.ASSIGNED)
 
     def test_stale_recovery(self):
-        """过期恢复：Assigned → Stale → Ready"""
+        """Recover from Stale after Assigned."""
         assert is_valid_transition(TaskState.ASSIGNED, TaskState.STALE)
         assert is_valid_transition(TaskState.STALE, TaskState.READY)

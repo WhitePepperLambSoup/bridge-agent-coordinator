@@ -1,6 +1,6 @@
-"""Bridge 数据库核心 — SQLite schema、迁移、CRUD、单实例锁。
+"""Bridge database core: SQLite schema, migrations, CRUD, and single-instance locking.
 
-设计参考：docs/bridge-design/09-database-events-and-config.md
+Design reference: docs/bridge-design/09-database-events-and-config.md
 """
 
 import os
@@ -9,13 +9,14 @@ import sqlite3
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import TextIO
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 # ── SQL DDL ───────────────────────────────────────────────
 
 SCHEMA_SQL = """
--- 项目表
+-- Projects table
 CREATE TABLE IF NOT EXISTS projects (
     id              TEXT PRIMARY KEY,
     name            TEXT NOT NULL,
@@ -29,7 +30,7 @@ CREATE TABLE IF NOT EXISTS projects (
     updated_at      TEXT NOT NULL
 );
 
--- Agent 档案表（动态数量，2-8 推荐）
+-- Agent profiles table (dynamic count, 2-8 recommended)
 CREATE TABLE IF NOT EXISTS agent_profiles (
     id              TEXT PRIMARY KEY,
     project_id      TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -49,7 +50,7 @@ CREATE TABLE IF NOT EXISTS agent_profiles (
     updated_at      TEXT NOT NULL
 );
 
--- 目标表
+-- Goals table
 CREATE TABLE IF NOT EXISTS goals (
     id              TEXT PRIMARY KEY,
     project_id      TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -62,7 +63,7 @@ CREATE TABLE IF NOT EXISTS goals (
     updated_at      TEXT NOT NULL
 );
 
--- 任务表（核心实体，含乐观并发 version）
+-- Tasks table (core entity with optimistic concurrency version)
 CREATE TABLE IF NOT EXISTS tasks (
     id              TEXT PRIMARY KEY,
     task_number     INTEGER NOT NULL,
@@ -90,7 +91,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     version         INTEGER NOT NULL DEFAULT 1
 );
 
--- 任务依赖表
+-- Task dependencies table
 CREATE TABLE IF NOT EXISTS task_dependencies (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     task_id         TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
@@ -99,7 +100,7 @@ CREATE TABLE IF NOT EXISTS task_dependencies (
     UNIQUE(task_id, depends_on_task_id)
 );
 
--- Attempt 表
+-- Attempts table
 CREATE TABLE IF NOT EXISTS attempts (
     id              TEXT PRIMARY KEY,
     task_id         TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
@@ -113,7 +114,7 @@ CREATE TABLE IF NOT EXISTS attempts (
     created_at      TEXT NOT NULL
 );
 
--- 租约表
+-- Leases table
 CREATE TABLE IF NOT EXISTS leases (
     id              TEXT PRIMARY KEY,
     task_id         TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
@@ -128,7 +129,7 @@ CREATE TABLE IF NOT EXISTS leases (
     created_at      TEXT NOT NULL
 );
 
--- 工作区表
+-- Workspaces table
 CREATE TABLE IF NOT EXISTS workspaces (
     id              TEXT PRIMARY KEY,
     task_id         TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
@@ -141,7 +142,7 @@ CREATE TABLE IF NOT EXISTS workspaces (
     cleaned_at      TEXT
 );
 
--- 回执表
+-- Receipts table
 CREATE TABLE IF NOT EXISTS receipts (
     id              TEXT PRIMARY KEY,
     task_id         TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
@@ -155,10 +156,11 @@ CREATE TABLE IF NOT EXISTS receipts (
     created_at      TEXT NOT NULL
 );
 
--- 验证表
+-- Validations table
 CREATE TABLE IF NOT EXISTS validations (
     id              TEXT PRIMARY KEY,
     task_id         TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    attempt_id      TEXT REFERENCES attempts(id),
     check_id        TEXT NOT NULL,
     command_json    TEXT NOT NULL DEFAULT '{}',
     exit_code       INTEGER,
@@ -170,10 +172,11 @@ CREATE TABLE IF NOT EXISTS validations (
     created_at      TEXT NOT NULL
 );
 
--- 审查表
+-- Reviews table
 CREATE TABLE IF NOT EXISTS reviews (
     id              TEXT PRIMARY KEY,
     task_id         TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    attempt_id      TEXT REFERENCES attempts(id),
     reviewer_agent_id TEXT NOT NULL REFERENCES agent_profiles(id),
     verdict         TEXT NOT NULL DEFAULT 'pending',
     issues_json     TEXT DEFAULT '[]',
@@ -182,7 +185,24 @@ CREATE TABLE IF NOT EXISTS reviews (
     completed_at    TEXT
 );
 
--- 合并队列表
+CREATE TABLE IF NOT EXISTS safety_overrides (
+    project_id      TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    action_id       TEXT NOT NULL,
+    policy          TEXT NOT NULL,
+    updated_at      TEXT NOT NULL,
+    PRIMARY KEY(project_id, action_id)
+);
+
+CREATE TABLE IF NOT EXISTS validation_commands (
+    project_id      TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    check_id        TEXT NOT NULL,
+    executable      TEXT NOT NULL,
+    args_json       TEXT NOT NULL DEFAULT '[]',
+    updated_at      TEXT NOT NULL,
+    PRIMARY KEY(project_id, check_id)
+);
+
+-- Merge queue table
 CREATE TABLE IF NOT EXISTS merge_queue (
     id              TEXT PRIMARY KEY,
     task_id         TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
@@ -195,7 +215,7 @@ CREATE TABLE IF NOT EXISTS merge_queue (
     merged_at       TEXT
 );
 
--- 成本记录表
+-- Cost records table
 CREATE TABLE IF NOT EXISTS cost_records (
     id              TEXT PRIMARY KEY,
     task_id         TEXT REFERENCES tasks(id),
@@ -208,7 +228,7 @@ CREATE TABLE IF NOT EXISTS cost_records (
     created_at      TEXT NOT NULL
 );
 
--- 审计事件表（不可变 — 只 INSERT，不 UPDATE/DELETE）
+-- Audit events table (immutable: INSERT only, no UPDATE/DELETE)
 CREATE TABLE IF NOT EXISTS events (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     event_id        TEXT NOT NULL UNIQUE,
@@ -222,7 +242,7 @@ CREATE TABLE IF NOT EXISTS events (
     created_at_utc  TEXT NOT NULL
 );
 
--- 操作日志表（Git 操作一致性）
+-- Operations log table (Git operation consistency)
 CREATE TABLE IF NOT EXISTS operations (
     id              TEXT PRIMARY KEY,
     op_type         TEXT NOT NULL,
@@ -235,19 +255,19 @@ CREATE TABLE IF NOT EXISTS operations (
     updated_at      TEXT
 );
 
--- Schema 版本表
+-- Schema version table
 CREATE TABLE IF NOT EXISTS schema_version (
     version         INTEGER PRIMARY KEY,
     applied_at      TEXT NOT NULL
 );
 
--- 原子任务计数器表
+-- Atomic task counter table
 CREATE TABLE IF NOT EXISTS task_counter (
     id              INTEGER PRIMARY KEY CHECK (id = 1),
     next_number     INTEGER NOT NULL DEFAULT 1
 );
 
--- 索引
+-- Indexes
 CREATE INDEX IF NOT EXISTS idx_tasks_state ON tasks(state);
 CREATE INDEX IF NOT EXISTS idx_tasks_goal ON tasks(goal_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id);
@@ -261,18 +281,18 @@ CREATE INDEX IF NOT EXISTS idx_receipts_hash ON receipts(content_hash);
 
 
 class DatabaseError(Exception):
-    """数据库操作错误"""
+    """Database operation error."""
     pass
 
 
 class Database:
-    """SQLite 数据库封装 — 权威状态源。"""
+    """SQLite database wrapper and authoritative state source."""
 
     def __init__(self, path: str):
         self.path = path
         self._conn: sqlite3.Connection | None = None
         self._lock = threading.Lock()
-        self._lock_fd = None
+        self._lock_fd: TextIO | None = None
 
     # ── Connection Management ─────────────────────────────
 
@@ -280,13 +300,29 @@ class Database:
     def conn(self) -> sqlite3.Connection:
         if self._conn is None:
             self._connect()
+        assert self._conn is not None
         return self._conn
 
     def _connect(self):
-        self._conn = sqlite3.connect(self.path)
+        # check_same_thread=False permits cross-thread use, such as by FileWatcher.
+        # The caller is responsible for managing concurrent access.
+        parent = os.path.dirname(os.path.abspath(self.path))
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        self._conn = sqlite3.connect(self.path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL")
+        self._conn.execute("PRAGMA busy_timeout=5000")
         self._conn.execute("PRAGMA foreign_keys=ON")
+
+    def get_thread_safe_connection(self) -> "Database":
+        """Return a separate database instance for use by a background thread.
+
+        P0 fix: The FileWatcher background thread needs a separate SQLite
+        connection and cannot reuse the main thread's connection because
+        check_same_thread=True would raise an error.
+        """
+        return Database(self.path)
 
     def close(self):
         if self._conn:
@@ -302,12 +338,23 @@ class Database:
     # ── Initialization & Migration ────────────────────────
 
     def initialize(self, allow_future_schema: bool = False):
-        """初始化数据库：创建表 → 检查版本兼容性 → 记录 schema 版本。"""
+        """Initialize the database: create tables, migrate, check compatibility, and record the schema version."""
         with self._lock:
-            # 先创建表（幂等），确保 schema_version 表存在
+            # Create tables first (idempotently) to ensure schema_version exists.
             self.conn.executescript(SCHEMA_SQL)
 
-            # 检查是否已有更高版本的 schema
+            # ── Incremental migrations: add new columns to older databases ──
+            try:
+                self._migrate_add_attempt_id_to_validations()
+                self._migrate_add_attempt_id_to_reviews()
+            except DatabaseError:
+                self.conn.rollback()
+                raise
+            except Exception as exc:
+                self.conn.rollback()
+                raise DatabaseError(f"Database migration failed: {exc}") from exc
+
+            # Check whether a newer schema version already exists.
             existing = self.conn.execute(
                 "SELECT version FROM schema_version ORDER BY version DESC LIMIT 1"
             ).fetchone()
@@ -318,12 +365,17 @@ class Database:
                         f"supported version {SCHEMA_VERSION}. Please upgrade Bridge."
                     )
 
-            # 初始化原子任务计数器
+            # Initialize the atomic task counter.
             self.conn.execute(
                 "INSERT OR IGNORE INTO task_counter (id, next_number) VALUES (1, 1)"
             )
 
             if existing is None:
+                self.conn.execute(
+                    "INSERT INTO schema_version (version, applied_at) VALUES (?, ?)",
+                    (SCHEMA_VERSION, _utcnow()),
+                )
+            elif existing["version"] < SCHEMA_VERSION:
                 self.conn.execute(
                     "INSERT INTO schema_version (version, applied_at) VALUES (?, ?)",
                     (SCHEMA_VERSION, _utcnow()),
@@ -334,6 +386,38 @@ class Database:
         row = self.conn.execute("SELECT MAX(version) FROM schema_version").fetchone()
         return row[0] if row and row[0] else 0
 
+    def _migrate_add_attempt_id_to_validations(self):
+        """Incrementally add the attempt_id column to older validations tables."""
+        try:
+            cols = self.conn.execute("PRAGMA table_info(validations)").fetchall()
+            col_names = {c["name"] for c in cols}
+            if "attempt_id" not in col_names:
+                self.conn.execute(
+                    "ALTER TABLE validations ADD COLUMN attempt_id TEXT REFERENCES attempts(id)"
+                )
+                self.conn.commit()
+        except Exception as exc:
+            self.conn.rollback()
+            raise DatabaseError(
+                f"Failed to migrate validations.attempt_id: {exc}"
+            ) from exc
+
+    def _migrate_add_attempt_id_to_reviews(self):
+        """Add attempt binding to databases created by older Bridge versions."""
+        try:
+            cols = self.conn.execute("PRAGMA table_info(reviews)").fetchall()
+            col_names = {c["name"] for c in cols}
+            if "attempt_id" not in col_names:
+                self.conn.execute(
+                    "ALTER TABLE reviews ADD COLUMN attempt_id TEXT REFERENCES attempts(id)"
+                )
+                self.conn.commit()
+        except Exception as exc:
+            self.conn.rollback()
+            raise DatabaseError(
+                f"Failed to migrate reviews.attempt_id: {exc}"
+            ) from exc
+
     def list_tables(self) -> list[str]:
         rows = self.conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
@@ -343,11 +427,11 @@ class Database:
     # ── Single-Instance Lock ──────────────────────────────
 
     def acquire_lock(self) -> bool:
-        """尝试获取单实例锁（排他文件锁）。"""
+        """Try to acquire the single-instance lock (an exclusive file lock)."""
         lock_dir = os.path.dirname(os.path.abspath(self.path))
         lock_path = os.path.join(lock_dir, "bridge.lock")
         try:
-            # 使用 O_CREAT | O_EXCL 确保原子排他创建
+            # Use O_CREAT | O_EXCL to ensure atomic, exclusive creation.
             fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
             self._lock_fd = os.fdopen(fd, "w")
             self._lock_fd.write(str(os.getpid()))
@@ -422,6 +506,53 @@ class Database:
     def list_projects(self) -> list[dict]:
         rows = self.conn.execute("SELECT * FROM projects ORDER BY created_at").fetchall()
         return [dict(r) for r in rows]
+
+    def set_safety_override(self, project_id: str, action_id: str, policy: str):
+        """Persist a project-scoped safety override."""
+        self.conn.execute(
+            """INSERT INTO safety_overrides (project_id, action_id, policy, updated_at)
+               VALUES (?,?,?,?)
+               ON CONFLICT(project_id, action_id)
+               DO UPDATE SET policy = excluded.policy, updated_at = excluded.updated_at""",
+            (project_id, action_id, policy, _utcnow()),
+        )
+        self.conn.commit()
+
+    def list_safety_overrides(self, project_id: str) -> dict[str, str]:
+        rows = self.conn.execute(
+            "SELECT action_id, policy FROM safety_overrides WHERE project_id = ?",
+            (project_id,),
+        ).fetchall()
+        return {r["action_id"]: r["policy"] for r in rows}
+
+    def set_validation_command(self, project_id: str, check_id: str,
+                               executable: str, args: list[str]):
+        """Persist an immutable-by-id validation command for one project."""
+        self.conn.execute(
+            """INSERT INTO validation_commands
+               (project_id, check_id, executable, args_json, updated_at)
+               VALUES (?,?,?,?,?)
+               ON CONFLICT(project_id, check_id)
+               DO UPDATE SET executable = excluded.executable,
+                             args_json = excluded.args_json,
+                             updated_at = excluded.updated_at""",
+            (project_id, check_id, executable, json.dumps(args), _utcnow()),
+        )
+        self.conn.commit()
+
+    def list_validation_commands(self, project_id: str) -> dict[str, dict]:
+        rows = self.conn.execute(
+            """SELECT check_id, executable, args_json
+               FROM validation_commands WHERE project_id = ?""",
+            (project_id,),
+        ).fetchall()
+        return {
+            r["check_id"]: {
+                "executable": r["executable"],
+                "args": json.loads(r["args_json"] or "[]"),
+            }
+            for r in rows
+        }
 
     # ── Agent Profiles ────────────────────────────────────
 
@@ -523,7 +654,7 @@ class Database:
         now = _utcnow()
 
         project_id = kwargs.get("project_id", "")
-        # 从 goal 推断 project_id
+        # Infer project_id from the goal.
         goal_id = kwargs.get("goal_id")
         if not project_id and goal_id:
             goal = self.get_goal(goal_id)
@@ -579,7 +710,7 @@ class Database:
     def update_task_state(
         self, task_id: str, from_state: str, to_state: str, expected_version: int
     ) -> bool:
-        """更新任务状态（乐观并发控制）。不自动 commit，由调用方控制事务。"""
+        """Update task state with optimistic concurrency; the caller controls the transaction."""
         now = _utcnow()
         cur = self.conn.execute(
             "UPDATE tasks SET state = ?, updated_at = ?, version = version + 1 "
@@ -602,16 +733,61 @@ class Database:
     def update_task_state_with_event(
         self, task_id: str, from_state: str, to_state: str, expected_version: int,
         event_type: str, actor_type: str, actor_id: str, project_id: str = "",
+        close_active_resources: bool = False, resource_reason: str = "",
     ):
-        """原子：状态更新 + 事件写入在同一事务中。"""
+        """Atomically update state/event and, optionally, close task resources.
+
+        A terminal task transition must not be observable with an active attempt
+        or lease.  Keeping the cleanup in this transaction prevents a crash
+        between the state update and resource cleanup from leaking resources.
+        """
+        closed_attempt_ids: list[str] = []
+        revoked_lease_ids: list[str] = []
         try:
             self.update_task_state(task_id, from_state, to_state, expected_version)
+
+            if close_active_resources:
+                now = _utcnow()
+                closed_attempt_ids = [
+                    row["id"]
+                    for row in self.conn.execute(
+                        "SELECT id FROM attempts "
+                        "WHERE task_id = ? AND status = 'in_progress'",
+                        (task_id,),
+                    ).fetchall()
+                ]
+                if closed_attempt_ids:
+                    self.conn.execute(
+                        "UPDATE attempts SET status = 'completed', completed_at = ? "
+                        "WHERE task_id = ? AND status = 'in_progress'",
+                        (now, task_id),
+                    )
+
+                revoked_lease_ids = [
+                    row["id"]
+                    for row in self.conn.execute(
+                        "SELECT id FROM leases "
+                        "WHERE task_id = ? AND status = 'active'",
+                        (task_id,),
+                    ).fetchall()
+                ]
+                if revoked_lease_ids:
+                    self.conn.execute(
+                        "UPDATE leases SET status = 'revoked', revoked_reason = ?, "
+                        "heartbeat_at = ? WHERE task_id = ? AND status = 'active'",
+                        (resource_reason or "task completed", now, task_id),
+                    )
+
             self._write_event_in_tx(
                 event_type=event_type, actor_type=actor_type, actor_id=actor_id,
                 project_id=project_id, task_id=task_id,
                 payload={"from": from_state, "to": to_state},
             )
             self.conn.commit()
+            return {
+                "attempt_ids": closed_attempt_ids,
+                "lease_ids": revoked_lease_ids,
+            }
         except Exception:
             self.conn.rollback()
             raise
@@ -634,19 +810,71 @@ class Database:
         return [dict(r) for r in rows]
 
     def get_project_tasks(self, project_id: str) -> list[dict]:
-        """获取指定项目的所有任务"""
+        """Return all tasks for the specified project."""
         rows = self.conn.execute(
             "SELECT * FROM tasks WHERE project_id = ? ORDER BY task_number",
             (project_id,),
         ).fetchall()
         return [dict(r) for r in rows]
 
+    # ── Task Dependencies ─────────────────────────────────
+
+    def add_task_dependency(self, task_id: str, depends_on_task_id: str,
+                            dependency_type: str = "blocks") -> bool:
+        """Add a dependency relationship: task_id depends on depends_on_task_id."""
+        if task_id == depends_on_task_id:
+            raise DatabaseError("A task cannot depend on itself")
+        self.conn.execute(
+            """INSERT OR IGNORE INTO task_dependencies (task_id, depends_on_task_id, dependency_type)
+               VALUES (?, ?, ?)""",
+            (task_id, depends_on_task_id, dependency_type),
+        )
+        self.conn.commit()
+        return True
+
+    def remove_task_dependency(self, task_id: str, depends_on_task_id: str) -> bool:
+        """Remove a dependency relationship."""
+        cur = self.conn.execute(
+            "DELETE FROM task_dependencies WHERE task_id = ? AND depends_on_task_id = ?",
+            (task_id, depends_on_task_id),
+        )
+        self.conn.commit()
+        return cur.rowcount > 0
+
+    def get_task_dependencies(self, task_id: str) -> list[str]:
+        """Return the IDs of tasks that task_id depends on."""
+        rows = self.conn.execute(
+            "SELECT depends_on_task_id FROM task_dependencies WHERE task_id = ?",
+            (task_id,),
+        ).fetchall()
+        return [r["depends_on_task_id"] for r in rows]
+
+    def get_dependent_tasks(self, task_id: str) -> list[str]:
+        """Return the IDs of tasks that depend on task_id."""
+        rows = self.conn.execute(
+            "SELECT task_id FROM task_dependencies WHERE depends_on_task_id = ?",
+            (task_id,),
+        ).fetchall()
+        return [r["task_id"] for r in rows]
+
     # ── Events ────────────────────────────────────────────
 
+
     def _write_event_in_tx(self, **kwargs):
-        """在已有事务中写入事件（不 commit）。"""
+        """Write an event in the existing transaction without committing."""
         eid = _new_id("evt")
         now = _utcnow()
+        task_id = kwargs.get("task_id")
+        project_id = kwargs.get("project_id")
+        # Task-scoped events must carry the task's project boundary even when
+        # callers omit project_id.  This keeps audit/resource reads isolated
+        # across projects and also repairs older call sites centrally.
+        if not project_id and task_id:
+            task_row = self.conn.execute(
+                "SELECT project_id FROM tasks WHERE id = ?", (task_id,)
+            ).fetchone()
+            if task_row:
+                project_id = task_row["project_id"]
         self.conn.execute(
             """INSERT INTO events
                (event_id, event_type, actor_type, actor_id,
@@ -657,8 +885,8 @@ class Database:
                 kwargs.get("event_type", ""),
                 kwargs.get("actor_type", "system"),
                 kwargs.get("actor_id", ""),
-                kwargs.get("project_id"),
-                kwargs.get("task_id"),
+                project_id,
+                task_id,
                 json.dumps(kwargs.get("payload", {})),
                 kwargs.get("correlation_id"),
                 now,
@@ -667,7 +895,7 @@ class Database:
         return eid
 
     def write_event(self, **kwargs):
-        """写入事件并提交。"""
+        """Write an event and commit it."""
         eid = self._write_event_in_tx(**kwargs)
         self.conn.commit()
         return eid
@@ -693,8 +921,89 @@ class Database:
         ).fetchall()
         return [dict(r) for r in rows]
 
+    def record_validation(
+        self,
+        task_id: str,
+        attempt_id: str = "",
+        check_id: str = "validation",
+        status: str = "passed",
+        output_summary: str = "",
+        exit_code: int = 0,
+        validator: str = "",
+        details: str = "",
+    ) -> str:
+        import uuid
+        vid = f"val-{uuid.uuid4().hex[:12]}"
+        now = _utcnow()
+        summary = details or output_summary
+        cid = validator or check_id
+        self.conn.execute(
+            """INSERT INTO validations (id, task_id, attempt_id, check_id, command_json, status, exit_code, output_summary, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (vid, task_id, attempt_id or None, cid, "[]", status, exit_code, summary, now),
+        )
+        self.conn.commit()
+        return vid
+
+    # ── Receipts ─────────────────────────────────────────
+
+    def insert_receipt_if_absent(
+        self,
+        receipt_id: str,
+        task_id: str,
+        attempt_id: str | None,
+        agent_id: str,
+        receipt_path: str,
+        content_hash: str,
+        status: str,
+        import_result: str,
+        created_at: str,
+    ) -> bool:
+        """Insert one receipt atomically and return False for an existing ID/hash.
+
+        Receipt files can be observed by multiple Bridge processes.  ``INSERT OR
+        IGNORE`` makes the deterministic content-derived receipt ID idempotent;
+        rollback guarantees a failed write never leaves a connection poisoned.
+        """
+        with self._lock:
+            try:
+                cur = self.conn.execute(
+                    """INSERT OR IGNORE INTO receipts
+                       (id, task_id, attempt_id, agent_id, receipt_path,
+                        content_hash, status, import_result, created_at)
+                       VALUES (?,?,?,?,?,?,?,?,?)""",
+                    (
+                        receipt_id,
+                        task_id,
+                        attempt_id,
+                        agent_id,
+                        receipt_path,
+                        content_hash,
+                        status,
+                        import_result,
+                        created_at,
+                    ),
+                )
+                self.conn.commit()
+                return cur.rowcount == 1
+            except Exception:
+                self.conn.rollback()
+                raise
+
+    def list_receipts(self, task_id: str | None = None) -> list[dict]:
+        if task_id:
+            rows = self.conn.execute(
+                "SELECT * FROM receipts WHERE task_id = ? ORDER BY created_at DESC",
+                (task_id,),
+            ).fetchall()
+        else:
+            rows = self.conn.execute(
+                "SELECT * FROM receipts ORDER BY created_at DESC"
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     # ═══════════════════════════════════════════════════════
-    # 运行时表持久化 (leases, reviews, merge_queue, workspaces, operations)
+    # Runtime table persistence (leases, reviews, merge_queue, workspaces, operations)
     # ═══════════════════════════════════════════════════════
 
     # ── Leases ────────────────────────────────────────────
@@ -705,7 +1014,7 @@ class Database:
         now = _utcnow()
         from datetime import timedelta
         expires = (datetime.now(timezone.utc) + timedelta(seconds=ttl_seconds)).isoformat()
-        # 空 attempt_id 使用 NULL 避免外键约束失败
+        # Use NULL for an empty attempt_id to avoid a foreign key constraint failure.
         aid = attempt_id if attempt_id else None
         self.conn.execute(
             """INSERT INTO leases (id, task_id, agent_id, attempt_id,
@@ -772,12 +1081,13 @@ class Database:
 
     # ── Reviews ───────────────────────────────────────────
 
-    def create_review(self, review_id: str, task_id: str, reviewer_agent_id: str) -> int:
+    def create_review(self, review_id: str, task_id: str, reviewer_agent_id: str, attempt_id: str = "") -> int:
         now = _utcnow()
+        aid = attempt_id if attempt_id else None
         self.conn.execute(
-            """INSERT INTO reviews (id, task_id, reviewer_agent_id, verdict, created_at)
-               VALUES (?,?,?,'pending',?)""",
-            (review_id, task_id, reviewer_agent_id, now),
+            """INSERT INTO reviews (id, task_id, attempt_id, reviewer_agent_id, verdict, created_at)
+               VALUES (?,?,?,?,'pending',?)""",
+            (review_id, task_id, aid, reviewer_agent_id, now),
         )
         self.conn.commit()
         return 1
@@ -942,13 +1252,13 @@ _counter_state: dict[str, int] = {}
 
 
 def _new_id(prefix: str) -> str:
-    """生成唯一 ID：{prefix}-{random_hex}"""
+    """Generate a unique ID in the form {prefix}-{random_hex}."""
     import secrets
     return f"{prefix}-{secrets.token_hex(6)}"
 
 
 def _new_task_id(conn: sqlite3.Connection) -> str:
-    """生成任务 ID：TASK-{递增编号}（原子递增，使用 task_counter 表）"""
+    """Generate an atomically incremented TASK-{number} ID using task_counter."""
     cur = conn.execute("UPDATE task_counter SET next_number = next_number + 1 WHERE id = 1")
     if cur.rowcount == 0:
         conn.execute("INSERT OR IGNORE INTO task_counter (id, next_number) VALUES (1, 1)")
@@ -983,14 +1293,14 @@ def _permissions_json(kwargs: dict) -> dict:
 # ── Module-Level Helpers ─────────────────────────────────
 
 def migrate_database(path: str) -> None:
-    """将数据库迁移到最新版本。Phase 1 仅创建新库。"""
+    """Migrate the database to the latest version; Phase 1 only creates new databases."""
     db = Database(path)
     db.initialize()
     db.close()
 
 
 def init_database(path: str) -> Database:
-    """初始化并返回数据库实例。"""
+    """Initialize and return a database instance."""
     db = Database(path)
     db.initialize()
     return db

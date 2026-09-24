@@ -1,4 +1,4 @@
-"""Phase 1.1 测试 — 错误模型"""
+"""Phase 1.1 tests - error model."""
 
 import pytest
 from datetime import datetime, timezone
@@ -20,7 +20,7 @@ from bridgelib.errors import (
 
 
 class TestErrorCategories:
-    """错误分类枚举"""
+    """Error category enumeration."""
 
     def test_all_categories_defined(self):
         expected = [
@@ -37,7 +37,7 @@ class TestErrorCategories:
 
 
 class TestBridgeError:
-    """基础错误类"""
+    """Base error class."""
 
     def test_minimal_creation(self):
         err = BridgeError(
@@ -110,7 +110,7 @@ class TestBridgeError:
 
 
 class TestSubclassErrors:
-    """各子类错误的默认 category"""
+    """Default category for each error subclass."""
 
     def test_config_error(self):
         err = ConfigError("BAD_CONFIG", "Invalid config")

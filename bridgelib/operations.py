@@ -1,6 +1,6 @@
-"""Bridge 操作日志与崩溃恢复 — Prepare/Execute/Complete 模式。
+"""Bridge operation logging and crash recovery using the Prepare/Execute/Complete pattern.
 
-设计参考：docs/bridge-design/09-database-events-and-config.md §5 + 06 §崩溃恢复
+Design references: docs/bridge-design/09-database-events-and-config.md section 5 and 06 Crash Recovery
 """
 
 import secrets
@@ -24,9 +24,9 @@ class OperationEntry:
     operation_id: str
     operation_type: str          # merge, cherry_pick, worktree_create, worktree_remove, revert
     task_id: str = ""
-    target: str = ""             # 操作目标描述
-    expected_baseline: str = ""  # Git 操作的预期基线
-    idempotency_key: str = ""    # 幂等键
+    target: str = ""             # Operation target description
+    expected_baseline: str = ""  # Expected baseline for the Git operation
+    idempotency_key: str = ""    # Idempotency key
     status: str = OperationStatus.PREPARED
     result: str = ""
     error: str = ""
@@ -77,7 +77,7 @@ class OperationEntry:
 # ── Operation Log ─────────────────────────────────────────
 
 class OperationLog:
-    """操作日志 — 记录所有可能因崩溃中断的操作。"""
+    """Log of all operations that could be interrupted by a crash."""
 
     def __init__(self):
         self._entries: dict[str, OperationEntry] = {}
@@ -85,7 +85,7 @@ class OperationLog:
         self._lock = threading.Lock()
 
     def record(self, entry: OperationEntry) -> str:
-        """记录操作（写入 OperationPrepared）。重复幂等键抛出 OpError。"""
+        """Record an OperationPrepared entry, raising OpError for a duplicate idempotency key."""
         with self._lock:
             if entry.idempotency_key and entry.idempotency_key in self._idempotency_keys:
                 existing = self._find_by_idempotency_key(entry.idempotency_key)
@@ -99,7 +99,7 @@ class OperationLog:
             return entry.operation_id
 
     def update(self, entry: OperationEntry):
-        """更新操作状态（完成或失败后调用）。"""
+        """Update operation status after completion or failure."""
         with self._lock:
             if entry.operation_id not in self._entries:
                 raise OpError(f"Operation {entry.operation_id} not found")
@@ -109,7 +109,7 @@ class OperationLog:
         return self._entries.get(operation_id)
 
     def list_incomplete(self) -> list[OperationEntry]:
-        """列出所有未完成的操作（PREPARED 状态）。"""
+        """List all incomplete operations in PREPARED status."""
         return [
             e for e in self._entries.values()
             if e.status == OperationStatus.PREPARED
@@ -128,13 +128,13 @@ class OperationLog:
 # ── Recovery Scanner ─────────────────────────────────────
 
 class RecoveryScanner:
-    """崩溃恢复扫描器 — 启动时扫描未完成操作并提供恢复建议。"""
+    """Crash recovery scanner that finds incomplete operations and suggests recovery actions at startup."""
 
     def __init__(self, operation_log: OperationLog):
         self.log = operation_log
 
     def scan(self) -> list[dict]:
-        """扫描未完成操作，返回恢复动作列表。"""
+        """Scan incomplete operations and return a list of recovery actions."""
         incomplete = self.log.list_incomplete()
         actions = []
         for entry in incomplete:
@@ -149,7 +149,7 @@ class RecoveryScanner:
         return actions
 
     def _suggest(self, entry: OperationEntry) -> str:
-        """根据操作类型给出恢复建议。"""
+        """Suggest a recovery action based on the operation type."""
         suggestions = {
             "merge": "Check git status; if merge completed, mark as completed; otherwise abort and retry.",
             "cherry_pick": "Check if cherry-pick succeeded; if conflict, resolve or abort.",

@@ -1,6 +1,6 @@
-"""Bridge 任务包协议 — manifest, receipt, artifacts 的生成与验证。
+"""Bridge task package protocol - manifest, receipt, and artifact generation and validation.
 
-设计参考：docs/bridge-design/05-agent-file-protocol.md
+Design reference: docs/bridge-design/05-agent-file-protocol.md
 """
 
 import json
@@ -35,7 +35,7 @@ class ReceiptStatus:
 
 
 class ProtocolError(Exception):
-    """协议验证错误"""
+    """Protocol validation error."""
     pass
 
 
@@ -43,7 +43,7 @@ class ProtocolError(Exception):
 
 @dataclass
 class Manifest:
-    """任务清单 — Agent 只读。"""
+    """Task manifest that is read-only for the agent."""
     protocol_version: int = 1
     project_id: str = ""
     task_id: str = ""
@@ -76,7 +76,7 @@ class Manifest:
 
 
 def generate_manifest(**kwargs) -> Manifest:
-    """生成任务 manifest。"""
+    """Generate a task manifest."""
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     return Manifest(
         protocol_version=ProtocolVersion.V1,
@@ -107,10 +107,10 @@ def generate_manifest(**kwargs) -> Manifest:
 
 
 def validate_manifest(data: dict) -> list[str]:
-    """验证 manifest 数据，返回错误列表（空列表 = 通过）。"""
+    """Validate manifest data and return errors; an empty list indicates success."""
     errors = []
 
-    # 必填字段检查
+    # Check required fields
     required = [
         "protocol_version", "task_id", "attempt", "lease_id",
         "agent_id", "role", "base_commit", "branch",
@@ -123,27 +123,27 @@ def validate_manifest(data: dict) -> list[str]:
     if errors:
         return errors
 
-    # 协议版本
+    # Protocol version
     if data["protocol_version"] != ProtocolVersion.V1:
         errors.append(f"Unsupported protocol_version: {data['protocol_version']}")
 
-    # task_id 格式：TASK-\d+
+    # task_id format: TASK-\d+
     if not re.match(r"^TASK-\d{3,}$", data.get("task_id", "")):
         errors.append(f"Invalid task_id format: {data.get('task_id')}")
 
-    # attempt 必须 > 0
+    # attempt must be greater than zero
     if not isinstance(data.get("attempt"), int) or data["attempt"] < 1:
         errors.append("attempt must be a positive integer")
 
-    # allowed_paths 不能为空
+    # allowed_paths must not be empty
     if not data.get("allowed_paths"):
         errors.append("allowed_paths must not be empty")
 
-    # required_outputs 不能为空
+    # required_outputs must not be empty
     if not data.get("required_outputs"):
         errors.append("required_outputs must not be empty")
 
-    # lease_id 必须非空
+    # lease_id must not be empty
     if not data.get("lease_id"):
         errors.append("lease_id must not be empty")
 
@@ -154,7 +154,7 @@ def validate_manifest(data: dict) -> list[str]:
 
 @dataclass
 class Receipt:
-    """Agent 回执 — Agent 写入，Bridge 读取。"""
+    """Agent receipt written by the agent and read by Bridge."""
     protocol_version: int = 1
     task_id: str = ""
     attempt: int = 1
@@ -179,8 +179,8 @@ class Receipt:
 
 
 def parse_receipt(markdown: str) -> Receipt:
-    """解析 RECEIPT.md 文件内容，返回 Receipt 对象。"""
-    # 提取 YAML front matter
+    """Parse RECEIPT.md content and return a Receipt object."""
+    # Extract YAML front matter
     fm_match = re.match(r"^---\s*\n(.*?)\n---\s*\n(.*)", markdown, re.DOTALL)
     if not fm_match:
         raise ProtocolError("RECEIPT_MISSING_FRONTMATTER",
@@ -189,7 +189,7 @@ def parse_receipt(markdown: str) -> Receipt:
     frontmatter = fm_match.group(1)
     body = fm_match.group(2).strip()
 
-    # 简单 YAML 解析（不依赖第三方库）
+    # Parse simple YAML without third-party dependencies
     data = {}
     for line in frontmatter.split("\n"):
         line = line.strip()
@@ -201,7 +201,7 @@ def parse_receipt(markdown: str) -> Receipt:
             value = value.strip().strip("'\"")
             data[key] = value
 
-    # 必填字段
+    # Required fields
     required = ["task_id", "attempt", "lease_id", "agent_id", "status", "protocol_version"]
     for field in required:
         if field not in data:
@@ -210,7 +210,7 @@ def parse_receipt(markdown: str) -> Receipt:
                 f"Receipt is missing required field: {field}"
             )
 
-    # 验证协议版本
+    # Validate the protocol version
     protocol_ver = int(data.get("protocol_version", 0))
     if protocol_ver != ProtocolVersion.V1:
         raise ProtocolError(
@@ -218,7 +218,7 @@ def parse_receipt(markdown: str) -> Receipt:
             f"Unsupported protocol_version: {protocol_ver}"
         )
 
-    # 验证 status
+    # Validate status
     status = data.get("status", "")
     if not ReceiptStatus.is_valid(status):
         raise ProtocolError(
@@ -227,7 +227,7 @@ def parse_receipt(markdown: str) -> Receipt:
         )
 
     submission_commit = data.get("submission_commit", "")
-    # completed 状态必须提供 submission_commit
+    # Completed receipts must include submission_commit
     if status == ReceiptStatus.COMPLETED and not submission_commit:
         raise ProtocolError(
             "RECEIPT_MISSING_COMMIT",
@@ -254,7 +254,7 @@ def validate_receipt(
     expected_lease_id: str | None = None,
     expected_agent_id: str | None = None,
 ) -> list[str]:
-    """交叉验证回执与预期值，返回错误列表。"""
+    """Cross-check a receipt against expected values and return any errors."""
     errors = []
 
     if expected_task_id and receipt.task_id != expected_task_id:
@@ -284,7 +284,7 @@ def validate_receipt(
 
 @dataclass
 class Artifacts:
-    """产物清单 — Agent 写入，Bridge 读取。"""
+    """Artifact manifest written by the agent and read by Bridge."""
     protocol_version: int = 1
     task_id: str = ""
     attempt: int = 1
@@ -303,12 +303,29 @@ class Artifacts:
 def validate_artifacts(data: dict, expected_task_id: str = "",
                       expected_attempt: int = 0, expected_agent_id: str = "",
                       expected_base_commit: str = "") -> list[str]:
-    """验证 ARTIFACTS.json，返回错误列表。"""
+    """Validate ARTIFACTS.json and return a list of errors.
+
+    P1 fix:
+    - Require attempt, base_commit, submission_commit, and generated_at.
+    - Strictly check field presence and types.
+    """
     errors = []
 
     if data.get("protocol_version") != 1:
         errors.append("Unsupported protocol_version")
 
+    # ── Required field checks ──────────────────────────────
+    required_fields = ["task_id", "attempt", "agent_id", "base_commit",
+                       "submission_commit", "changed_files", "generated_at"]
+    for fld in required_fields:
+        if fld not in data:
+            errors.append(f"Missing required field in artifacts: {fld}")
+
+    if errors:
+        # Return early when required fields are missing to avoid later errors
+        return errors
+
+    # ── Field value checks ─────────────────────────────────
     if expected_task_id and data.get("task_id") != expected_task_id:
         errors.append(f"Task ID mismatch in artifacts: expected {expected_task_id}")
 
@@ -321,10 +338,27 @@ def validate_artifacts(data: dict, expected_task_id: str = "",
     if expected_base_commit and data.get("base_commit") != expected_base_commit:
         errors.append(f"Base commit mismatch in artifacts")
 
+    # attempt must be a positive integer
+    attempt_val = data.get("attempt")
+    if not isinstance(attempt_val, int) or attempt_val < 1:
+        errors.append(f"attempt must be a positive integer, got: {attempt_val}")
+
+    # generated_at must not be empty
+    if not data.get("generated_at"):
+        errors.append("generated_at must not be empty")
+
+    # submission_commit must not be empty because completion requires a commit
+    if not data.get("submission_commit"):
+        errors.append("submission_commit must not be empty")
+
+    # base_commit must not be empty
+    if not data.get("base_commit"):
+        errors.append("base_commit must not be empty")
+
     if not data.get("changed_files"):
         errors.append("No changed_files in artifacts")
 
-    # 路径安全检查：不允许 ../ 路径
+    # Path safety check: reject ../ paths
     for f in data.get("changed_files", []):
         path = f.get("path", "") if isinstance(f, dict) else str(f)
         if ".." in path:
@@ -337,7 +371,7 @@ def validate_artifacts(data: dict, expected_task_id: str = "",
 
 @dataclass
 class TaskPackage:
-    """完整的任务包 — 包含所有协议文件的内容。"""
+    """Complete task package containing all protocol file content."""
     manifest: Manifest
     prompt: str = ""
     task_md: str = ""
@@ -362,10 +396,10 @@ class TaskPackage:
         }
 
     def write_to(self, directory: str):
-        """将任务包原子写入目录。检测到已有非空回执时拒绝覆盖（不可绕过）。"""
+        """Write the task package atomically, refusing to overwrite a nonempty receipt."""
         os.makedirs(directory, exist_ok=True)
 
-        # 检查是否存在未导入的回执 — 无条件拒绝覆盖
+        # Refuse to overwrite an unimported receipt under all circumstances
         receipt_path = os.path.join(directory, "RECEIPT.md")
         if os.path.exists(receipt_path):
             with open(receipt_path, "r", encoding="utf-8") as f:
@@ -380,7 +414,7 @@ class TaskPackage:
 
         for filename, content in self.to_file_dict().items():
             path = os.path.join(directory, filename)
-            # 原子写入：先写临时文件，再 rename
+            # Write atomically through a temporary file followed by rename
             fd, tmp_path = tempfile.mkstemp(dir=directory, suffix=".tmp")
             try:
                 with os.fdopen(fd, "w", encoding="utf-8") as f:
@@ -395,7 +429,7 @@ class TaskPackage:
 
 
 def generate_task_package(**kwargs) -> TaskPackage:
-    """生成完整任务包。"""
+    """Generate a complete task package."""
     manifest = generate_manifest(**kwargs)
 
     task_id = kwargs.get("task_id", "TASK-000")

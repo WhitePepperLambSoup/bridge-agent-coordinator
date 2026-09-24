@@ -1,6 +1,6 @@
-"""Bridge 协作模式模板定义。"""
+"""Bridge collaboration mode template definitions."""
 
-TEMPLATES = TEMPLATES = {
+TEMPLATES = {
     "architect-engineer": {
         "name": "Architect-Engineer",
         "description": "GPT 做架构师（规划/审查/验收），Reasonix 做工程师（编码/测试/修复）。9 道工序流水线，含交付审查门、整改闭环、GPT 升级修复机制。",

@@ -1,6 +1,6 @@
-"""Bridge 通知系统 — InApp/Desktop/Log 三种适配器。
+"""Bridge notification system with in-app, desktop, and log adapters.
 
-设计参考：docs/bridge-design/10-adapter-interfaces.md §5
+Design reference: docs/bridge-design/10-adapter-interfaces.md, section 5
 """
 
 import threading
@@ -42,7 +42,7 @@ class Notification:
 
 
 class NotificationManager:
-    """通知管理器 — 支持多个通知器。"""
+    """Notification manager supporting multiple notifiers."""
 
     def __init__(self, max_notifications: int = 200):
         self.max_notifications = max_notifications
@@ -89,12 +89,41 @@ class NotificationManager:
 
 
 class InAppNotifier:
-    """应用内通知器"""
+    """Queue in-app notifications for GUI consumption."""
+    def __init__(self):
+        self._queue: list[Notification] = []
+        self._lock = threading.Lock()
+
     def notify(self, notification: Notification):
-        pass  # GUI 层负责显示
+        with self._lock:
+            self._queue.append(notification)
+            if len(self._queue) > 100:
+                self._queue.pop(0)
+
+    def drain(self) -> list[Notification]:
+        """Return and clear all pending notifications."""
+        with self._lock:
+            msgs = list(self._queue)
+            self._queue.clear()
+            return msgs
 
 
 class LogNotifier:
-    """日志通知器"""
+    """Write notifications to a log file."""
+    def __init__(self, log_path: str = ""):
+        self.log_path = log_path
+
     def notify(self, notification: Notification):
-        pass  # 写入日志文件
+        import logging
+        logger = logging.getLogger("bridge.notifications")
+        level_map = {
+            NotificationLevel.INFO: logging.INFO,
+            NotificationLevel.ACTION: logging.INFO,
+            NotificationLevel.WARNING: logging.WARNING,
+            NotificationLevel.HIGH: logging.WARNING,
+            NotificationLevel.CRITICAL: logging.ERROR,
+        }
+        log_level = level_map.get(notification.level, logging.INFO)
+        logger.log(log_level,
+                   f"[{notification.level.value}] {notification.title}: "
+                   f"{notification.message} (task={notification.task_id})")

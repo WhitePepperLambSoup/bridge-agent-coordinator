@@ -1,4 +1,4 @@
-"""Phase 4.1 测试 — 协调器核心"""
+"""Phase 4.1 tests - coordinator core."""
 
 import pytest
 import tempfile
@@ -22,7 +22,7 @@ from bridgelib.coordinator import (
 
 @pytest.fixture
 def coordinator():
-    """创建内存数据库的协调器"""
+    """Create a coordinator backed by an in-memory database."""
     db = Database(":memory:")
     db.initialize()
     coord = BridgeCoordinator(
@@ -37,7 +37,7 @@ def coordinator():
 
 
 class TestProjectLifecycle:
-    """项目初始化与配置"""
+    """Project initialization and configuration."""
 
     def test_init_project(self, coordinator):
         pid = coordinator.init_project(
@@ -66,7 +66,7 @@ class TestProjectLifecycle:
 
 
 class TestTaskLifecycle:
-    """完整任务生命周期"""
+    """Complete task lifecycle."""
 
     @pytest.fixture
     def setup(self, coordinator):
@@ -83,7 +83,7 @@ class TestTaskLifecycle:
     def test_create_and_advance_task(self, coordinator, setup):
         pid, planner, implementer, reviewer, gid = setup
 
-        # 创建任务
+        # Create a task.
         tid = coordinator.create_task(
             goal_id=gid,
             title="Implement OAuth login",
@@ -116,19 +116,19 @@ class TestTaskLifecycle:
         coordinator.transition_task(tid, TaskState.PLANNING, actor="user", confirmed=True)
         coordinator.transition_task(tid, TaskState.READY, actor="user", confirmed=True)
 
-        # 分配 + 获取租约
+        # Assign the task and acquire a lease.
         coordinator.assign_task(tid, implementer, reviewer, actor="user")
         task = coordinator.get_task(tid)
         assert task["state"] == "assigned"
         assert task["owner_agent_id"] == implementer
 
-        # 获取租约
+        # Acquire a lease.
         lease = coordinator.acquire_lease(tid, implementer, resource_path="src/**")
         assert lease is not None
         assert lease.status == "active"
 
     def test_draft_to_approved_path(self, coordinator, setup):
-        """完整快乐路径：Draft → Approved（不含 merge）"""
+        """Complete happy path from Draft to Approved, excluding merge."""
         pid, planner, implementer, reviewer, gid = setup
         tid = coordinator.create_task(
             goal_id=gid, title="Full flow task",
@@ -140,7 +140,8 @@ class TestTaskLifecycle:
         for state in [TaskState.PLANNING, TaskState.READY]:
             coordinator.transition_task(tid, state, actor="user", confirmed=True)
         coordinator.assign_task(tid, implementer, reviewer, actor="user")
-        coordinator.acquire_lease(tid, implementer, resource_path="src/**")
+        lease = coordinator.acquire_lease(tid, implementer, resource_path="src/**")
+        attempt_id = coordinator.create_attempt(tid, implementer, lease.lease_id)
         coordinator.transition_task(tid, TaskState.IN_PROGRESS, actor="user", confirmed=True)
 
         # InProgress → Submitted
@@ -148,22 +149,23 @@ class TestTaskLifecycle:
         task = coordinator.get_task(tid)
         assert task["state"] == "submitted"
 
-        # 创建验证记录（PASSED）以满足 Approved 门禁
+        # Create a PASSED validation record to satisfy the Approved gate.
         coordinator.db.conn.execute(
-            "INSERT INTO validations (id, task_id, check_id, status, exit_code, created_at) VALUES (?,?,?,?,?,?)",
-            ("val-001", tid, "unit-tests", "passed", 0, datetime.now(timezone.utc).isoformat()),
+            "INSERT INTO validations (id, task_id, attempt_id, check_id, status, exit_code, created_at) VALUES (?,?,?,?,?,?,?)",
+            ("val-001", tid, attempt_id, "unit-tests", "passed", 0, datetime.now(timezone.utc).isoformat()),
         )
         coordinator.db.conn.commit()
 
-        # 创建审查记录（APPROVED）以满足 Approved 门禁
+        # Create an APPROVED review record to satisfy the Approved gate.
         from bridgelib.review import ReviewPackage, ReviewVerdict
         pkg = ReviewPackage(task_id=tid, title="Test", acceptance_criteria=["AC-1"])
         coordinator.submit_review(tid, reviewer, pkg)
-        # 查找并完成审查
+        # Find and complete the review.
         reviews = coordinator.db.list_pending_reviews()
         for r in reviews:
             if r["task_id"] == tid:
-                coordinator.complete_review(r["id"], ReviewVerdict.APPROVED, "LGTM")
+                coordinator.complete_review(r["id"], ReviewVerdict.APPROVED, "LGTM",
+                                           reviewer_agent_id=reviewer)
 
         # Submitted → Validating → Approved
         coordinator.transition_task(tid, TaskState.VALIDATING, actor="system", confirmed=True)
@@ -171,7 +173,7 @@ class TestTaskLifecycle:
         task = coordinator.get_task(tid)
         assert task["state"] == "approved"
 
-        # 提交审查
+        # Submit the review.
         from bridgelib.review import ReviewPackage
         pkg = ReviewPackage(
             task_id=tid, title="Test",
@@ -182,13 +184,14 @@ class TestTaskLifecycle:
         req_id = coordinator.submit_review(tid, reviewer, pkg)
         assert req_id is not None
 
-        # 批准审查
+        # Approve the review.
         from bridgelib.review import ReviewVerdict
-        result = coordinator.complete_review(req_id, ReviewVerdict.APPROVED, "LGTM")
+        result = coordinator.complete_review(req_id, ReviewVerdict.APPROVED, "LGTM",
+                                             reviewer_agent_id=reviewer)
         assert result.verdict == ReviewVerdict.APPROVED
 
     def test_revision_loop(self, coordinator, setup):
-        """修复循环：Validating → RevisionRequired → Assigned"""
+        """Revision loop from Validating to RevisionRequired to Assigned."""
         pid, planner, implementer, reviewer, gid = setup
         tid = coordinator.create_task(
             goal_id=gid, title="Revision test",
@@ -203,18 +206,18 @@ class TestTaskLifecycle:
         coordinator.transition_task(tid, TaskState.SUBMITTED, actor="system", confirmed=True)
         coordinator.transition_task(tid, TaskState.VALIDATING, actor="system", confirmed=True)
 
-        # 验证失败 → 需要修复
+        # Validation fails and requires revision.
         coordinator.transition_task(tid, TaskState.REVISION_REQUIRED, actor="system", confirmed=True)
         task = coordinator.get_task(tid)
         assert task["state"] == "revision_required"
 
-        # 重新分配
+        # Reassign the task.
         coordinator.transition_task(tid, TaskState.ASSIGNED, actor="user", confirmed=True)
         task = coordinator.get_task(tid)
         assert task["state"] == "assigned"
 
     def test_escalation_path(self, coordinator, setup):
-        """升级路径：Validating → Escalated → Assigned"""
+        """Escalation path from Validating to Escalated to Assigned."""
         pid, planner, implementer, reviewer, gid = setup
         tid = coordinator.create_task(
             goal_id=gid, title="Escalation test",
@@ -229,19 +232,19 @@ class TestTaskLifecycle:
         coordinator.transition_task(tid, TaskState.SUBMITTED, actor="system", confirmed=True)
         coordinator.transition_task(tid, TaskState.VALIDATING, actor="system", confirmed=True)
 
-        # 升级
+        # Escalate the task.
         coordinator.transition_task(tid, TaskState.ESCALATED, actor="system", confirmed=True)
         task = coordinator.get_task(tid)
         assert task["state"] == "escalated"
 
-        # 升级后重新分配（可能给强模型）
+        # Reassign after escalation, potentially to a stronger model.
         coordinator.transition_task(tid, TaskState.ASSIGNED, actor="user", confirmed=True)
         task = coordinator.get_task(tid)
         assert task["state"] == "assigned"
 
 
 class TestMergeQueueIntegration:
-    """合并队列集成"""
+    """Merge queue integration."""
 
     def test_enqueue_and_merge(self, coordinator):
         pid = coordinator.init_project(name="Test", root_path="/tmp/t")
@@ -253,18 +256,19 @@ class TestMergeQueueIntegration:
             allowed_paths=["src/**"],
             acceptance_criteria=["AC-1"],
         )
-        # 快速推进到 Submitted
+        # Advance quickly to Submitted.
         for state in [TaskState.PLANNING, TaskState.READY]:
             coordinator.transition_task(tid, state, actor="user", confirmed=True)
         coordinator.assign_task(tid, agent, reviewer, actor="user")
-        coordinator.acquire_lease(tid, agent, resource_path="src/**")
+        lease = coordinator.acquire_lease(tid, agent, resource_path="src/**")
+        attempt_id = coordinator.create_attempt(tid, agent, lease.lease_id)
         coordinator.transition_task(tid, TaskState.IN_PROGRESS, actor="user", confirmed=True)
         coordinator.transition_task(tid, TaskState.SUBMITTED, actor="system")
 
-        # 创建验证和审查记录（Approved 门禁要求）
+        # Create validation and review records required by the Approved gate.
         coordinator.db.conn.execute(
-            "INSERT INTO validations (id, task_id, check_id, status, exit_code, created_at) VALUES (?,?,?,?,?,?)",
-            ("val-mq-001", tid, "unit-tests", "passed", 0, datetime.now(timezone.utc).isoformat()),
+            "INSERT INTO validations (id, task_id, attempt_id, check_id, status, exit_code, created_at) VALUES (?,?,?,?,?,?,?)",
+            ("val-mq-001", tid, attempt_id, "unit-tests", "passed", 0, datetime.now(timezone.utc).isoformat()),
         )
         coordinator.db.conn.commit()
         from bridgelib.review import ReviewPackage, ReviewVerdict
@@ -273,16 +277,17 @@ class TestMergeQueueIntegration:
         revs = coordinator.db.list_pending_reviews()
         for r in revs:
             if r["task_id"] == tid:
-                coordinator.complete_review(r["id"], ReviewVerdict.APPROVED, "LGTM")
+                coordinator.complete_review(r["id"], ReviewVerdict.APPROVED, "LGTM",
+                                           reviewer_agent_id=reviewer)
 
         for state in [TaskState.VALIDATING, TaskState.APPROVED]:
             coordinator.transition_task(tid, state, actor="system", confirmed=True)
 
-        # 入队
-        entry = coordinator.enqueue_merge(tid, candidate_commit="abc123")
+        # Enqueue the merge.
+        entry = coordinator.enqueue_merge(tid, candidate_commit="abc123", confirmed=True)
         assert entry.status == "queued"
 
-        # 开始合并
+        # Start the merge.
         coordinator.start_merge(entry.entry_id)
         coordinator.complete_merge(entry.entry_id, "merged as xyz")
         updated = coordinator.get_merge_entry(entry.entry_id)
@@ -290,7 +295,7 @@ class TestMergeQueueIntegration:
 
 
 class TestProjectSummary:
-    """项目摘要"""
+    """Project summary."""
 
     def test_summary(self, coordinator):
         pid = coordinator.init_project(name="Test", root_path="/tmp/t")
@@ -305,7 +310,7 @@ class TestProjectSummary:
 
 
 class TestErrorHandling:
-    """错误处理"""
+    """Error handling."""
 
     def test_invalid_transition_rejected(self, coordinator):
         pid = coordinator.init_project(name="Test", root_path="/tmp/t")
@@ -313,7 +318,7 @@ class TestErrorHandling:
         gid = coordinator.create_goal(pid, title="Goal")
         tid = coordinator.create_task(goal_id=gid, title="Test", allowed_paths=["src/**"])
 
-        # 不能直接从 Draft 跳到 InProgress
+        # A task cannot jump directly from Draft to InProgress.
         with pytest.raises(CoordinatorError):
             coordinator.transition_task(tid, TaskState.IN_PROGRESS, actor="user", confirmed=True)
 
@@ -323,6 +328,6 @@ class TestErrorHandling:
         gid = coordinator.create_goal(pid, title="Goal")
         tid = coordinator.create_task(goal_id=gid, title="Test", allowed_paths=["src/**"])
 
-        # Draft 状态不能分配
+        # A task in Draft cannot be assigned.
         with pytest.raises(CoordinatorError):
             coordinator.assign_task(tid, agent, agent, actor="user")

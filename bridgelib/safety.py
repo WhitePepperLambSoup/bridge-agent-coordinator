@@ -1,53 +1,54 @@
-"""Bridge 安全策略引擎 — Strict/Balanced/Expert 确认模式 + 不可关闭的硬底线。
+"""Bridge safety policy engine with confirmation modes and immutable hard limits.
 
-设计参考：docs/bridge-design/07-safety-and-confirmations.md
+Design reference: docs/bridge-design/07-safety-and-confirmations.md
 """
 
 from enum import Enum
 from dataclasses import dataclass, field
+from typing import Callable
 
 
 class ConfirmationMode(Enum):
-    STRICT = "strict"       # 所有写入/合并/清理/外部命令确认
-    BALANCED = "balanced"   # 默认；低风险自动，高风险确认
-    EXPERT = "expert"       # 可关闭大部分确认，但不能突破安全底线
+    STRICT = "strict"       # Confirm all writes, merges, cleanup, and external commands
+    BALANCED = "balanced"   # Default: automate low risk and confirm high risk
+    EXPERT = "expert"       # Most confirmations can be disabled, but hard limits remain
 
 
 class ActionPolicy(Enum):
-    AUTO = "auto"                       # 自动执行
-    CONFIRM_ONCE = "confirm_once"       # 每次会话确认一次
+    AUTO = "auto"                       # Execute automatically
+    CONFIRM_ONCE = "confirm_once"       # Confirm once per session
     CONFIRM_SESSION = "confirm_session"
     CONFIRM_PROJECT = "confirm_project"
-    ALWAYS_CONFIRM = "always_confirm"   # 始终确认
-    DISABLED = "disabled"               # 禁用此操作
+    ALWAYS_CONFIRM = "always_confirm"   # Always confirm
+    DISABLED = "disabled"               # Disable this action
 
 
-# 不可关闭的安全底线 — 任何模式下都必须拒绝
+# Immutable safety limits that every mode must reject
 HARD_FLOOR_ACTIONS = frozenset({
-    "delete_user_directory",         # 删除含未提交修改的非临时用户目录
-    "write_outside_workspace",       # 写入项目范围之外
-    "force_push",                    # force push 或重写共享历史
-    "delete_default_branch",         # 删除默认/主分支
-    "expose_secret",                 # 输出/提交/复制检测到的密钥
-    "overwrite_unknown_file",        # 覆盖无法确认归属的文件
-    "path_resolution_failure",       # 路径解析失败/符号链接逃逸
-    "db_git_mismatch_autofix",       # 数据库与 Git 矛盾时自动修复
-    "agent_privilege_escalation",    # Agent 通过回执扩大权限
+    "delete_user_directory",         # Delete a non-temporary user directory with uncommitted changes
+    "write_outside_workspace",       # Write outside the project scope
+    "force_push",                    # Force push or rewrite shared history
+    "delete_default_branch",         # Delete the default or main branch
+    "expose_secret",                 # Output, commit, or copy a detected secret
+    "overwrite_unknown_file",        # Overwrite a file whose ownership cannot be established
+    "path_resolution_failure",       # Path resolution failure or symlink escape
+    "db_git_mismatch_autofix",       # Automatically repair a database/Git inconsistency
+    "agent_privilege_escalation",    # Let an agent expand permissions through a receipt
 })
 
 
 @dataclass
 class ActionRule:
-    """单个操作的安全规则"""
+    """Safety rule for a single action."""
     action_id: str
     policy: ActionPolicy = ActionPolicy.ALWAYS_CONFIRM
     description: str = ""
 
 
 class SafetyPolicy:
-    """安全策略引擎 — 判断操作是否需要确认、是否可以自动化。"""
+    """Determine whether actions require confirmation or can be automated."""
 
-    # 默认 Balanced 策略
+    # Default balanced policy
     DEFAULT_RULES: dict[str, ActionPolicy] = {
         "create_worktree": ActionPolicy.AUTO,
         "remove_clean_worktree": ActionPolicy.AUTO,
@@ -71,50 +72,91 @@ class SafetyPolicy:
     }
 
     def __init__(self, mode: ConfirmationMode = ConfirmationMode.BALANCED,
-                 overrides: dict[str, ActionPolicy] | None = None):
+                 overrides: dict[str, ActionPolicy] | None = None,
+                 on_override: Callable[[str, ActionPolicy], None] | None = None):
         self.mode = mode
         self._rules = dict(self.DEFAULT_RULES)
+        self._on_override = on_override
         if overrides:
             self._rules.update(overrides)
 
     def requires_confirmation(self, action_id: str) -> bool:
-        """判断操作是否需要用户确认。"""
-        # 硬底线 — 始终拒绝
+        """Determine whether an action requires user confirmation.
+
+        P1 fix: DISABLED means the action is prohibited regardless of confirmation.
+        """
+        # Hard limits are always rejected
         if action_id in HARD_FLOOR_ACTIONS:
-            return True  # 不仅确认，实际上应该完全拒绝
+            return True
 
         policy = self._rules.get(action_id, ActionPolicy.ALWAYS_CONFIRM)
 
+        # DISABLED always requires confirmation to prevent automated execution
+        if policy == ActionPolicy.DISABLED:
+            return True
+
         if self.mode == ConfirmationMode.STRICT:
-            return policy != ActionPolicy.DISABLED
+            return True
         elif self.mode == ConfirmationMode.BALANCED:
-            return policy not in (ActionPolicy.AUTO, ActionPolicy.DISABLED)
+            return policy != ActionPolicy.AUTO
         elif self.mode == ConfirmationMode.EXPERT:
-            return policy in (ActionPolicy.ALWAYS_CONFIRM, ActionPolicy.DISABLED)
+            return policy == ActionPolicy.ALWAYS_CONFIRM
 
         return True
 
     def is_hard_floor(self, action_id: str) -> bool:
-        """检查是否触及不可关闭的安全底线。"""
+        """Check whether an action reaches an immutable safety limit."""
         return action_id in HARD_FLOOR_ACTIONS
 
     def can_automate(self, action_id: str) -> bool:
-        """检查操作是否可以自动化。"""
+        """Check whether an action can be automated."""
         if action_id in HARD_FLOOR_ACTIONS:
+            return False
+        policy = self._rules.get(action_id, ActionPolicy.ALWAYS_CONFIRM)
+        if policy == ActionPolicy.DISABLED:
             return False
         return not self.requires_confirmation(action_id)
 
+    def is_disabled(self, action_id: str) -> bool:
+        """Check whether an action is fully disabled.
+
+        P1 fix: a DISABLED action cannot run even when confirmed=True.
+        """
+        if action_id in HARD_FLOOR_ACTIONS:
+            return True
+        policy = self._rules.get(action_id, ActionPolicy.ALWAYS_CONFIRM)
+        return policy == ActionPolicy.DISABLED
+
+    def check_allowed(self, action_id: str, confirmed: bool = False) -> bool:
+        """Apply the common safety gate to determine whether an action may run.
+
+        P1 fix: all write operations must pass through this gate.
+        - HARD_FLOOR: reject completely.
+        - DISABLED: reject completely, even when confirmed=True.
+        - Confirmation required but absent: reject.
+        - Otherwise: allow.
+        """
+        if self.is_hard_floor(action_id):
+            return False
+        if self.is_disabled(action_id):
+            return False
+        if self.requires_confirmation(action_id) and not confirmed:
+            return False
+        return True
+
     def get_policy(self, action_id: str) -> ActionPolicy:
-        """获取操作的安全策略。"""
+        """Get the safety policy for an action."""
         return self._rules.get(action_id, ActionPolicy.ALWAYS_CONFIRM)
 
     def set_override(self, action_id: str, policy: ActionPolicy):
-        """用户覆盖某操作的安全级别。"""
+        """Set a user override for an action's safety level."""
         if action_id in HARD_FLOOR_ACTIONS and policy != ActionPolicy.ALWAYS_CONFIRM:
             raise ValueError(
                 f"Cannot override hard floor action '{action_id}' "
                 f"to {policy.value} — this action always requires confirmation"
             )
+        if self._on_override:
+            self._on_override(action_id, policy)
         self._rules[action_id] = policy
 
     def to_dict(self) -> dict:
@@ -124,7 +166,7 @@ class SafetyPolicy:
         }
 
 
-# 默认工厂方法
+# Default factory functions
 def create_strict_policy() -> SafetyPolicy:
     return SafetyPolicy(mode=ConfirmationMode.STRICT)
 

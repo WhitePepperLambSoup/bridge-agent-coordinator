@@ -1,6 +1,6 @@
-"""Bridge 重试策略与升级降级 — 失败分类、指数退避、升级决策。
+"""Bridge retry and escalation policies with failure classification and backoff.
 
-设计参考：docs/bridge-design/04-agent-routing-and-cost.md §升级策略
+Design reference: docs/bridge-design/04-agent-routing-and-cost.md, escalation policy
 """
 
 import threading
@@ -23,7 +23,7 @@ class RetryError(Exception):
 
 
 class FailureClassifier:
-    """失败分类器 — 根据错误信息和退出码分类。"""
+    """Classify failures from error messages and exit codes."""
 
     @staticmethod
     def classify(error_message: str, exit_code: int | None = None,
@@ -52,7 +52,7 @@ class FailureClassifier:
 
 
 class RetryPolicy:
-    """重试策略 — 最大重试次数、不可重试类别、指数退避。"""
+    """Retry policy with limits, unretryable categories, and exponential backoff."""
 
     UNRETRYABLE = {FailureCategory.SCOPE_VIOLATION, FailureCategory.SECURITY}
 
@@ -73,7 +73,7 @@ class RetryPolicy:
 
 
 class EscalationDecider:
-    """升级决策器 — 何时将任务升级给强模型。"""
+    """Decide when to escalate a task to a more capable model."""
 
     def __init__(self, max_retries_before_escalation: int = 2,
                  max_escalations: int = 3, escalation_enabled: bool = True):
@@ -81,29 +81,47 @@ class EscalationDecider:
         self.max_escalations = max_escalations
         self.escalation_enabled = escalation_enabled
         self._escalation_count: int = 0
+        self._last_reason: str = ""
+        self._last_errors: dict[str, str] = {}
 
-    def should_escalate(self, failure_count: int) -> bool:
+    def should_escalate(self, failure_count: int, task_id: str = "",
+                        last_error: str = "") -> bool:
         if not self.escalation_enabled:
             return False
         if self._escalation_count >= self.max_escalations:
             return False
-        return failure_count >= self.max_retries_before_escalation
+        should = failure_count >= self.max_retries_before_escalation
+        if should:
+            if last_error:
+                self._last_errors[task_id] = last_error
+            self._last_reason = (
+                f"Task failed {failure_count} times "
+                f"(threshold: {self.max_retries_before_escalation}). "
+                f"Last error: {last_error[:200]}."
+            )
+        return should
 
     def record_escalation(self):
         self._escalation_count += 1
 
     def get_escalation_reason(self, task_id: str, failure_count: int,
                               last_error: str = "") -> str:
-        return (
+        reason = (
             f"Task {task_id} has failed {failure_count} times "
             f"(max retries: {self.max_retries_before_escalation}). "
             f"Last error: {last_error[:200]}. "
             f"Escalating to high-capability agent for diagnosis."
         )
+        self._last_reason = reason
+        return reason
+
+    @property
+    def last_reason(self) -> str:
+        return self._last_reason
 
 
 class RetryManager:
-    """重试管理器 — 追踪每个任务的重试历史和决策。"""
+    """Track retry history and decisions for each task."""
 
     def __init__(self, policy: RetryPolicy | None = None,
                  escalation: EscalationDecider | None = None):
@@ -139,7 +157,25 @@ class RetryManager:
         return self.policy.can_retry(count, category)
 
     def should_escalate(self, task_id: str) -> bool:
-        return self.escalation.should_escalate(self.failure_count(task_id))
+        count = self.failure_count(task_id)
+        last_error = ""
+        history = self._history.get(task_id, [])
+        if history:
+            last_error = history[-1].get("error", "")
+        return self.escalation.should_escalate(count, task_id=task_id,
+                                                last_error=last_error)
 
     def get_history(self, task_id: str) -> list[dict]:
         return list(self._history.get(task_id, []))
+
+    def get_last_error(self, task_id: str) -> str:
+        history = self._history.get(task_id, [])
+        return history[-1].get("error", "") if history else ""
+
+    def restore_from_records(self, records: list[dict]):
+        """Restore retry history from database records."""
+        with self._lock:
+            for rec in records:
+                tid = rec.get("task_id", "")
+                if tid:
+                    self._history.setdefault(tid, []).append(rec)

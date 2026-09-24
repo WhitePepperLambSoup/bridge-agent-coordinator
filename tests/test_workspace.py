@@ -1,4 +1,4 @@
-"""Phase 2.4 测试 — Git Worktree 管理"""
+"""Phase 2.4 tests for Git worktree management."""
 
 import pytest
 from bridgelib.workspace import (
@@ -84,3 +84,13 @@ class TestWorkspaceManager:
 
     def test_get_nonexistent(self, manager):
         assert manager.get_by_task("nonexistent") is None
+
+    def test_clean_workspace_allows_reregister_new_attempt(self, manager):
+        ws1 = manager.register(task_id="TASK-001", agent_id="a", attempt=1,
+                               base_commit="abc", worktree_path="/tmp/ws1")
+        manager.mark_cleaned(ws1.workspace_id)
+        ws2 = manager.register(task_id="TASK-001", agent_id="a", attempt=2,
+                               base_commit="abc", worktree_path="/tmp/ws2")
+        assert ws2.attempt == 2
+        assert ws2.status == WorkspaceStatus.ACTIVE
+        assert manager.get_by_task("TASK-001").workspace_id == ws2.workspace_id

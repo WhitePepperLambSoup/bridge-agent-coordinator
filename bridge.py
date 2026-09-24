@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
 """
-Bridge — 本地多 Agent 协调器
+Bridge — Local multi-agent coordinator
 
-入口文件。Phase 0 重构后，所有核心逻辑已拆分至 bridgelib/ 包。
-运行方式不变：
+Entry point. After the Phase 0 refactor, all core logic was moved to bridgelib/.
+Usage remains unchanged:
   python bridge.py
 
-开发测试：
+Development testing:
   python -m pytest tests/ -v
 """
 import sys
 import os
 
-# 确保项目根目录在 sys.path 中
+# Ensure the project root is in sys.path
 _project_root = os.path.dirname(os.path.abspath(__file__))
 if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
-# 向后兼容：将 bridgelib 模块暴露为顶层名称
+# Backward compatibility: expose bridgelib modules under top-level names
 from bridgelib.i18n import T, set_lang, LANG, _STR
 from bridgelib.templates import TEMPLATES
 from bridgelib.utils import _atomic_write, _sanitize_agent_name, _check_git_repo

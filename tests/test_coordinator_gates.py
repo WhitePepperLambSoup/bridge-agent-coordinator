@@ -1,11 +1,11 @@
-"""Phase 0+ 反例回归测试 — 验证协调器门禁阻止审查报告中的 P0 问题。
+"""Phase 0+ negative regression tests for coordinator P0 gates.
 
-测试覆盖：
-- 未知 Agent 不能取得租约
-- 虚假任务不能被审查/合并
-- 跨项目 Agent 不能操作
-- disabled Agent 被拒绝
-- Manual 策略未确认被阻止
+Coverage:
+- Unknown agents cannot acquire leases.
+- Nonexistent tasks cannot be reviewed or merged.
+- Agents cannot operate across projects.
+- Disabled agents are rejected.
+- Unconfirmed operations are blocked under the Manual policy.
 """
 
 import pytest
@@ -45,7 +45,7 @@ def coordinator(db):
 
 @pytest.fixture
 def env(coordinator):
-    """创建项目 + 两个 Agent + 一个任务到 ASSIGNED 状态"""
+    """Create a project, agents, and a task in the ASSIGNED state."""
     pid = coordinator.init_project(name="Test", root_path="/tmp/t")
     planner = coordinator.add_agent(pid, display_name="Codex",
                                      capability_tier="high",
@@ -69,29 +69,29 @@ def env(coordinator):
 
 
 class TestLeaseGates:
-    """P0: acquire_lease 门禁测试"""
+    """P0 acquire_lease gate tests."""
 
     def test_unknown_agent_rejected(self, coordinator, env):
-        """不存在的 Agent 不能取得租约"""
+        """A nonexistent agent cannot acquire a lease."""
         pid, planner, implementer, reviewer, gid, tid = env
         with pytest.raises(CoordinatorError, match="not found"):
             coordinator.acquire_lease(tid, "does-not-exist", resource_path="src/**")
 
     def test_disabled_agent_rejected(self, coordinator, env):
-        """禁用的 Agent 不能取得租约"""
+        """A disabled agent cannot acquire a lease."""
         pid, planner, implementer, reviewer, gid, tid = env
-        # 创建一个 disabled agent
+        # Create a disabled agent.
         disabled = coordinator.add_agent(pid, display_name="Disabled",
                                           capability_tier="standard", roles=["implementer"])
         import json
-        # 通过 db 直接禁用
+        # Disable it directly through the database.
         coordinator.db.conn.execute("UPDATE agent_profiles SET enabled = 0 WHERE id = ?", (disabled,))
         coordinator.db.conn.commit()
         with pytest.raises(CoordinatorError, match="disabled"):
             coordinator.acquire_lease(tid, disabled, resource_path="src/**")
 
     def test_cross_project_agent_rejected(self, coordinator, env):
-        """跨项目 Agent 不能取得租约"""
+        """An agent from another project cannot acquire a lease."""
         pid, planner, implementer, reviewer, gid, tid = env
         pid2 = coordinator.init_project(name="Other", root_path="/tmp/o")
         other_agent = coordinator.add_agent(pid2, display_name="OtherAgent",
@@ -100,32 +100,32 @@ class TestLeaseGates:
             coordinator.acquire_lease(tid, other_agent, resource_path="src/**")
 
     def test_non_owner_agent_rejected(self, coordinator, env):
-        """非 owner 的 Agent 不能取得租约"""
+        """An agent that is not the owner cannot acquire a lease."""
         pid, planner, implementer, reviewer, gid, tid = env
-        # planner 不是这个任务的 owner
+        # The planner is not the owner of this task.
         with pytest.raises(CoordinatorError, match="not the owner"):
             coordinator.acquire_lease(tid, planner, resource_path="src/**")
 
     def test_wrong_state_rejected(self, coordinator, env):
-        """非 ASSIGNED/IN_PROGRESS 状态不能取得租约"""
+        """A lease requires the ASSIGNED or IN_PROGRESS state."""
         pid, planner, implementer, reviewer, gid, tid = env
-        # 先让任务回到 draft（虽然不是标准转换，但测试可以验证状态检查）
+        # Use a new Draft task to verify the state check.
         tid2 = coordinator.create_task(
             goal_id=gid, title="Draft task",
             allowed_paths=["src/**"], acceptance_criteria=["AC-1"],
         )
-        # 保持在 draft 状态
+        # Keep the task in the Draft state.
         with pytest.raises(CoordinatorError, match="must be in 'assigned' or 'in_progress'"):
             coordinator.acquire_lease(tid2, implementer, resource_path="src/**")
 
     def test_out_of_scope_path_rejected(self, coordinator, env):
-        """不在 allowed_paths 内的路径不能取得租约"""
+        """A path outside allowed_paths cannot receive a lease."""
         pid, planner, implementer, reviewer, gid, tid = env
         with pytest.raises(CoordinatorError, match="not within the allowed scope"):
             coordinator.acquire_lease(tid, implementer, resource_path="secret/**")
 
     def test_duplicate_lease_rejected(self, coordinator, env):
-        """已有活跃租约时不能重复取得"""
+        """A second lease cannot be acquired while one is active."""
         pid, planner, implementer, reviewer, gid, tid = env
         coordinator.acquire_lease(tid, implementer, resource_path="src/**")
         with pytest.raises(CoordinatorError, match="already has an active lease"):
@@ -133,24 +133,24 @@ class TestLeaseGates:
 
 
 class TestReviewGates:
-    """P0: submit_review 门禁测试"""
+    """P0 submit_review gate tests."""
 
     def test_nonexistent_task_rejected(self, coordinator, env):
-        """不存在的任务不能提交审查"""
+        """A review cannot be submitted for a nonexistent task."""
         pid, planner, implementer, reviewer, gid, tid = env
         pkg = ReviewPackage(task_id="TASK-999999", title="Ghost task")
         with pytest.raises(CoordinatorError, match="not found"):
             coordinator.submit_review("TASK-999999", reviewer, pkg)
 
     def test_nonexistent_reviewer_rejected(self, coordinator, env):
-        """不存在的审查者不能提交审查"""
+        """A nonexistent reviewer cannot submit a review."""
         pid, planner, implementer, reviewer, gid, tid = env
         pkg = ReviewPackage(task_id=tid, title="Test")
         with pytest.raises(CoordinatorError, match="not found"):
             coordinator.submit_review(tid, "ghost-reviewer", pkg)
 
     def test_disabled_reviewer_rejected(self, coordinator, env):
-        """禁用的审查者不能提交审查"""
+        """A disabled reviewer cannot submit a review."""
         pid, planner, implementer, reviewer, gid, tid = env
         disabled_rev = coordinator.add_agent(pid, display_name="DisabledRev",
                                               capability_tier="high",
@@ -162,7 +162,7 @@ class TestReviewGates:
             coordinator.submit_review(tid, disabled_rev, pkg)
 
     def test_cross_project_reviewer_rejected(self, coordinator, env):
-        """跨项目审查者不能提交审查"""
+        """A reviewer from another project cannot submit a review."""
         pid, planner, implementer, reviewer, gid, tid = env
         pid2 = coordinator.init_project(name="Other", root_path="/tmp/o")
         other_rev = coordinator.add_agent(pid2, display_name="OtherRev",
@@ -173,72 +173,74 @@ class TestReviewGates:
             coordinator.submit_review(tid, other_rev, pkg)
 
     def test_no_review_permission_rejected(self, coordinator, env):
-        """无审查权限的 Agent 不能提交审查"""
+        """An agent without review permission cannot submit a review."""
         pid, planner, implementer, reviewer, gid, tid = env
-        # implementer 没有 can_review 权限
+        # The implementer does not have can_review permission.
         pkg = ReviewPackage(task_id=tid, title="Test")
         with pytest.raises(CoordinatorError, match="does not have review permission"):
             coordinator.submit_review(tid, implementer, pkg)
 
 
 class TestMergeGates:
-    """P0: enqueue_merge 门禁测试"""
+    """P0 enqueue_merge gate tests."""
 
     def _prepare_approved(self, coordinator, env):
-        """辅助：将任务推进到 APPROVED 状态（含验证和审查记录）"""
+        """Advance the task to APPROVED with validation and review records."""
         pid, planner, implementer, reviewer, gid, tid = env
-        coordinator.acquire_lease(tid, implementer, resource_path="src/**")
+        lease = coordinator.acquire_lease(tid, implementer, resource_path="src/**")
+        attempt_id = coordinator.create_attempt(tid, implementer, lease.lease_id)
         coordinator.transition_task(tid, TaskState.IN_PROGRESS, actor="user", confirmed=True)
         coordinator.transition_task(tid, TaskState.SUBMITTED, actor="system")
-        # 创建验证记录
+        # Create a validation record.
         from datetime import datetime, timezone
         coordinator.db.conn.execute(
-            "INSERT INTO validations (id, task_id, check_id, status, exit_code, created_at) VALUES (?,?,?,?,?,?)",
-            ("val-mg-001", tid, "unit-tests", "passed", 0, datetime.now(timezone.utc).isoformat()),
+            "INSERT INTO validations (id, task_id, attempt_id, check_id, status, exit_code, created_at) VALUES (?,?,?,?,?,?,?)",
+            ("val-mg-001", tid, attempt_id, "unit-tests", "passed", 0, datetime.now(timezone.utc).isoformat()),
         )
         coordinator.db.conn.commit()
-        # 创建审查记录
+        # Create a review record.
         from bridgelib.review import ReviewPackage, ReviewVerdict
         pkg = ReviewPackage(task_id=tid, title="Test")
         coordinator.submit_review(tid, reviewer, pkg)
         reviews = coordinator.db.list_pending_reviews()
         for r in reviews:
             if r["task_id"] == tid:
-                coordinator.complete_review(r["id"], ReviewVerdict.APPROVED, "LGTM")
+                coordinator.complete_review(r["id"], ReviewVerdict.APPROVED, "LGTM",
+                                           reviewer_agent_id=reviewer)
         coordinator.transition_task(tid, TaskState.VALIDATING, actor="system")
         coordinator.transition_task(tid, TaskState.APPROVED, actor="system", confirmed=True)
         return tid
 
     def test_nonexistent_task_rejected(self, coordinator, env):
-        """不存在的任务不能入队合并"""
+        """A nonexistent task cannot be enqueued for merge."""
         with pytest.raises(CoordinatorError, match="not found"):
             coordinator.enqueue_merge("TASK-999999", "abc1234")
 
     def test_non_approved_state_rejected(self, coordinator, env):
-        """非 APPROVED 状态的任务不能入队合并"""
+        """A task outside the APPROVED state cannot be enqueued for merge."""
         pid, planner, implementer, reviewer, gid, tid = env
         with pytest.raises(CoordinatorError, match="must be in 'approved' state"):
             coordinator.enqueue_merge(tid, "abc1234")
 
     def test_empty_commit_rejected(self, coordinator, env):
-        """空的 candidate_commit 不能入队"""
+        """An empty candidate_commit cannot be enqueued."""
         tid = self._prepare_approved(coordinator, env)
         with pytest.raises(CoordinatorError, match="candidate_commit must not be empty"):
             coordinator.enqueue_merge(tid, "")
 
     def test_valid_commit_enqueued(self, coordinator, env):
-        """有效的 APPROVED 任务 + 非空 commit 可以入队"""
+        """A valid APPROVED task with a nonempty commit can be enqueued."""
         tid = self._prepare_approved(coordinator, env)
-        entry = coordinator.enqueue_merge(tid, "abc1234")
+        entry = coordinator.enqueue_merge(tid, "abc1234", confirmed=True)
         assert entry is not None
         assert entry.status == "queued"
 
 
 class TestPersistenceGates:
-    """P0: 运行时状态持久化测试"""
+    """P0 runtime state persistence tests."""
 
     def test_leases_persisted(self, coordinator, env):
-        """租约创建后可在数据库中查询"""
+        """A lease can be queried from the database after creation."""
         pid, planner, implementer, reviewer, gid, tid = env
         coordinator.acquire_lease(tid, implementer, resource_path="src/**")
         leases = coordinator.db.list_active_leases(project_id=pid)
@@ -246,7 +248,7 @@ class TestPersistenceGates:
         assert any(l["task_id"] == tid for l in leases)
 
     def test_reviews_persisted(self, coordinator, env):
-        """审查请求创建后可在数据库中查询"""
+        """A review request can be queried after creation."""
         pid, planner, implementer, reviewer, gid, tid = env
         coordinator.acquire_lease(tid, implementer, resource_path="src/**")
         coordinator.transition_task(tid, TaskState.IN_PROGRESS, actor="user", confirmed=True)
@@ -256,16 +258,17 @@ class TestPersistenceGates:
         assert len(reviews) >= 1
 
     def test_merge_entries_persisted(self, coordinator, env):
-        """合并条目创建后可在数据库中查询"""
+        """A merge entry can be queried after creation."""
         pid, planner, implementer, reviewer, gid, tid = env
-        coordinator.acquire_lease(tid, implementer, resource_path="src/**")
+        lease = coordinator.acquire_lease(tid, implementer, resource_path="src/**")
+        attempt_id = coordinator.create_attempt(tid, implementer, lease.lease_id)
         coordinator.transition_task(tid, TaskState.IN_PROGRESS, actor="user", confirmed=True)
         coordinator.transition_task(tid, TaskState.SUBMITTED, actor="system")
-        # 创建验证和审查记录
+        # Create validation and review records.
         from datetime import datetime, timezone
         coordinator.db.conn.execute(
-            "INSERT INTO validations (id, task_id, check_id, status, exit_code, created_at) VALUES (?,?,?,?,?,?)",
-            ("val-mp-001", tid, "unit-tests", "passed", 0, datetime.now(timezone.utc).isoformat()),
+            "INSERT INTO validations (id, task_id, attempt_id, check_id, status, exit_code, created_at) VALUES (?,?,?,?,?,?,?)",
+            ("val-mp-001", tid, attempt_id, "unit-tests", "passed", 0, datetime.now(timezone.utc).isoformat()),
         )
         coordinator.db.conn.commit()
         from bridgelib.review import ReviewPackage, ReviewVerdict
@@ -274,24 +277,25 @@ class TestPersistenceGates:
         reviews = coordinator.db.list_pending_reviews()
         for r in reviews:
             if r["task_id"] == tid:
-                coordinator.complete_review(r["id"], ReviewVerdict.APPROVED, "LGTM")
+                coordinator.complete_review(r["id"], ReviewVerdict.APPROVED, "LGTM",
+                                           reviewer_agent_id=reviewer)
         coordinator.transition_task(tid, TaskState.VALIDATING, actor="system")
         coordinator.transition_task(tid, TaskState.APPROVED, actor="system", confirmed=True)
-        coordinator.enqueue_merge(tid, "abc1234")
+        coordinator.enqueue_merge(tid, "abc1234", confirmed=True)
         entries = coordinator.db.list_merge_entries(task_id=tid)
         assert len(entries) >= 1
 
 
 class TestProjectSummaryIsolation:
-    """P1: 项目摘要隔离测试"""
+    """P1 project summary isolation tests."""
 
     def test_summary_isolated_by_project(self, coordinator, env):
-        """一个项目的摘要不应包含另一个项目的运行时数据"""
+        """A project summary excludes another project's runtime data."""
         pid, planner, implementer, reviewer, gid, tid = env
-        # 在项目1中创建租约
+        # Create a lease in project 1.
         coordinator.acquire_lease(tid, implementer, resource_path="src/**")
 
-        # 创建项目2
+        # Create project 2.
         pid2 = coordinator.init_project(name="Project2", root_path="/tmp/p2")
         agent2 = coordinator.add_agent(pid2, display_name="Agent2",
                                         capability_tier="standard", roles=["implementer"])
@@ -306,11 +310,11 @@ class TestProjectSummaryIsolation:
         coordinator.transition_task(tid2, TaskState.READY, actor="user", confirmed=True)
         coordinator.assign_task(tid2, agent2, reviewer2, actor="user")
 
-        # 项目2 的摘要不应包含项目1 的租约
+        # Project 2's summary should not include project 1's lease.
         summary2 = coordinator.get_project_summary(pid2)
-        # 项目2 没有活跃租约
+        # Project 2 has no active leases.
         assert summary2.active_leases == 0
 
-        # 项目1 的摘要应有活跃租约
+        # Project 1's summary should include an active lease.
         summary1 = coordinator.get_project_summary(pid)
         assert summary1.active_leases >= 1

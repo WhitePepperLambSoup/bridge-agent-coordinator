@@ -1,10 +1,10 @@
-"""Phase 1.3 测试 — 配置分层"""
+"""Phase 1.3 tests - layered configuration."""
 
 import os
 import tempfile
 import pytest
 
-# 如果没有 pyyaml，跳过测试
+# Skip these tests if PyYAML is unavailable.
 try:
     import yaml
     HAS_YAML = True
@@ -119,7 +119,7 @@ permissions:
 class TestConfigLoader:
     def test_load_project_only(self):
         with tempfile.TemporaryDirectory() as tmp:
-            # 写 project.yaml
+            # Write project.yaml.
             project_yaml = os.path.join(tmp, ".bridge", "project.yaml")
             os.makedirs(os.path.dirname(project_yaml), exist_ok=True)
             with open(project_yaml, "w") as f:

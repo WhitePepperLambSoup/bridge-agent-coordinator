@@ -1,4 +1,4 @@
-"""Phase 4.3 测试 — 通知系统"""
+"""Phase 4.3 tests - notification system."""
 
 import pytest
 from bridgelib.notifications import (
@@ -75,7 +75,7 @@ class TestNotificationManager:
         assert manager.unread_count() == 0
 
     def test_max_notifications(self, manager):
-        """超过最大数量时自动清理旧通知"""
+        """Old notifications are removed automatically above the limit."""
         manager.max_notifications = 5
         for i in range(10):
             manager.send(NotificationLevel.INFO, f"T{i}", f"msg {i}")

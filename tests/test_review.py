@@ -1,4 +1,4 @@
-"""Phase 3.1 测试 — 审查系统"""
+"""Phase 3.1 tests for the review system."""
 
 import pytest
 from datetime import datetime, timezone
@@ -14,7 +14,7 @@ from bridgelib.review import (
 
 
 class TestReviewVerdict:
-    """审查裁决枚举"""
+    """Test the review verdict enum."""
 
     def test_four_verdicts(self):
         verdicts = {
@@ -33,7 +33,7 @@ class TestReviewVerdict:
 
 
 class TestReviewPackage:
-    """审查包 — 提供给审查 Agent 的最小上下文"""
+    """Test the minimal context package provided to a review agent."""
 
     def test_minimal_package(self):
         pkg = ReviewPackage(
@@ -70,7 +70,7 @@ class TestReviewPackage:
 
 
 class TestReviewRequest:
-    """审查请求"""
+    """Test review requests."""
 
     def test_create_request(self):
         req = ReviewRequest(
@@ -106,7 +106,7 @@ class TestReviewRequest:
 
 
 class TestReviewResult:
-    """审查结果"""
+    """Test review results."""
 
     def test_approved_result(self):
         result = ReviewResult(
@@ -150,7 +150,7 @@ class TestReviewResult:
         assert result.escalation_reason is not None
 
     def test_fix_task_created_for_revision(self):
-        """RevisionRequired 时创建修复任务引用"""
+        """Create a fix-task reference for RevisionRequired."""
         result = ReviewResult(
             request_id="rev-005",
             verdict=ReviewVerdict.REVISION_REQUIRED,
@@ -162,7 +162,7 @@ class TestReviewResult:
 
 
 class TestReviewManager:
-    """审查管理器"""
+    """Test the review manager."""
 
     @pytest.fixture
     def manager(self):
@@ -193,7 +193,7 @@ class TestReviewManager:
             summary="LGTM",
         )
         assert result.verdict == ReviewVerdict.APPROVED
-        # 请求状态应更新
+        # The request status should be updated.
         updated = manager.get_request(req.request_id)
         assert updated.status == "completed"
 
@@ -225,7 +225,7 @@ class TestReviewManager:
         assert len(reviews) == 1
 
     def test_duplicate_review_rejected(self, manager, sample_package):
-        """同一任务不能有多个 pending 审查"""
+        """Prevent multiple pending reviews for one task."""
         manager.submit(task_id="TASK-001", reviewer_agent_id="a", review_package=sample_package)
         with pytest.raises(ReviewError):
             manager.submit(task_id="TASK-001", reviewer_agent_id="b", review_package=sample_package)

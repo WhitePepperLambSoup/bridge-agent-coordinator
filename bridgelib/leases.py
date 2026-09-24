@@ -1,6 +1,6 @@
-"""Bridge 租约与心跳管理 — 任务/路径/全局资源租约。
+"""Bridge lease and heartbeat management for task, path, and global resources.
 
-设计参考：docs/bridge-design/06-git-worktree-and-conflicts.md §租约
+Design reference: docs/bridge-design/06-git-worktree-and-conflicts.md, Leases section
 """
 
 import secrets
@@ -20,17 +20,18 @@ class LeaseStatus:
 
 
 class LeaseError(Exception):
-    """租约操作错误"""
+    """Lease operation error."""
     pass
 
 
 @dataclass
 class Lease:
-    """租约数据对象"""
+    """Lease data object."""
     lease_id: str
     task_id: str
     agent_id: str
     attempt_id: str = ""
+    project_id: str = ""              # P1: Project isolation
     resource_type: str = "task"       # task | path | global
     resource_path: str = ""           # glob pattern or GLOBAL:name
     status: str = LeaseStatus.ACTIVE
@@ -78,7 +79,7 @@ def is_lease_expired(expires_at: datetime) -> bool:
 # ── Lease Manager ─────────────────────────────────────────
 
 class LeaseManager:
-    """内存中的租约管理器（Phase 2 不依赖数据库）。"""
+    """In-memory lease manager (Phase 2 does not depend on the database)."""
 
     def __init__(self):
         self._leases: dict[str, Lease] = {}
@@ -89,13 +90,18 @@ class LeaseManager:
         task_id: str,
         agent_id: str,
         attempt_id: str = "",
+        project_id: str = "",
         resource_type: str = "task",
         resource_path: str = "",
         ttl_seconds: int = 900,
     ) -> Lease:
-        """获取租约。冲突时抛出 LeaseError。"""
+        """Acquire a lease, raising LeaseError on conflict.
+
+        P1: project_id provides project isolation, so identical paths in
+        different projects do not conflict.
+        """
         with self._lock:
-            self._check_conflict(resource_type, resource_path, task_id)
+            self._check_conflict(resource_type, resource_path, task_id, project_id)
 
             lease_id = generate_lease_id()
             lease = Lease(
@@ -103,6 +109,7 @@ class LeaseManager:
                 task_id=task_id,
                 agent_id=agent_id,
                 attempt_id=attempt_id,
+                project_id=project_id,
                 resource_type=resource_type,
                 resource_path=resource_path,
                 expires_at=compute_expiry(ttl_seconds),
@@ -111,7 +118,7 @@ class LeaseManager:
             return lease
 
     def renew(self, lease_id: str, ttl_seconds: int = 900) -> Lease:
-        """续租。过期租约不可续。"""
+        """Renew a lease; expired leases cannot be renewed."""
         with self._lock:
             lease = self._get_or_raise(lease_id)
             if lease.status == LeaseStatus.REVOKED:
@@ -123,7 +130,7 @@ class LeaseManager:
             return lease
 
     def revoke(self, lease_id: str, reason: str = "") -> Lease:
-        """撤销租约。"""
+        """Revoke a lease."""
         with self._lock:
             lease = self._get_or_raise(lease_id)
             lease.status = LeaseStatus.REVOKED
@@ -133,7 +140,7 @@ class LeaseManager:
     def heartbeat(
         self, lease_id: str, progress_pct: int = 0, current_step: str = "", blocker: str = ""
     ) -> Lease:
-        """心跳更新 — 用于显示进度和续租暗示（不自动续租）。"""
+        """Update the heartbeat to show progress and suggest renewal without renewing automatically."""
         if not 0 <= progress_pct <= 100:
             raise LeaseError(f"Progress must be 0-100, got {progress_pct}")
 
@@ -153,7 +160,7 @@ class LeaseManager:
         return self._leases.get(lease_id)
 
     def list_active(self) -> list[Lease]:
-        """列出活跃且未过期的租约。"""
+        """List active, unexpired leases."""
         return [
             l for l in self._leases.values()
             if l.status == LeaseStatus.ACTIVE and not is_lease_expired(l.expires_at)
@@ -177,21 +184,53 @@ class LeaseManager:
         return lease
 
     def _check_path_overlap(self, path_a: str, path_b: str) -> bool:
-        """检查两个资源路径是否重叠（支持 glob 模式）。"""
+        """Check whether two resource paths overlap, including globs and parent paths.
+
+        P1 fix: Detect parent-child path conflicts such as src and src/file.py.
+        """
+        if not path_a or not path_b:
+            return False
         if path_a == path_b:
             return True
-        # 如果 a 是 glob 模式，检查 b 是否匹配 a
+
+        # Normalize paths for parent-child detection.
+        norm_a = path_a.replace("\\", "/").rstrip("/")
+        norm_b = path_b.replace("\\", "/").rstrip("/")
+
+        # Parent-child detection: src conflicts with src/file.py at path boundaries.
+        if not ("*" in norm_a or "**" in norm_a or "*" in norm_b or "**" in norm_b):
+            if norm_a.startswith(norm_b + "/") or norm_b.startswith(norm_a + "/"):
+                return True
+
+        # Glob pattern matching.
         if "**" in path_a or "*" in path_a:
             if matches_glob(path_b, path_a):
                 return True
-        # 如果 b 是 glob 模式，检查 a 是否匹配 b
         if "**" in path_b or "*" in path_b:
             if matches_glob(path_a, path_b):
                 return True
+
+        # Glob parent-child detection: src/** conflicts with src/file.py at path boundaries.
+        # src/** must not conflict with src2/file.py, so check the path boundary.
+        if "/**" in norm_a:
+            prefix_a = norm_a[:-3]  # Remove /** to get "src".
+            # norm_b must be "src" or start with "src/" (a path boundary).
+            if norm_b == prefix_a or norm_b.startswith(prefix_a + "/"):
+                return True
+        if "/**" in norm_b:
+            prefix_b = norm_b[:-3]
+            if norm_a == prefix_b or norm_a.startswith(prefix_b + "/"):
+                return True
+
         return False
 
-    def _check_conflict(self, resource_type: str, resource_path: str, task_id: str):
-        """检查是否存在活跃租约冲突。"""
+    def _check_conflict(self, resource_type: str, resource_path: str, task_id: str,
+                         project_id: str = ""):
+        """Check for an active lease conflict.
+
+        P1: Isolate by project_id so identical paths in different projects
+        do not conflict.
+        """
         for existing in self._leases.values():
             if existing.status != LeaseStatus.ACTIVE:
                 continue
@@ -199,7 +238,9 @@ class LeaseManager:
                 continue
             if existing.resource_type != resource_type:
                 continue
-            # 检查路径重叠（即使是同一任务的不同 agent）
+            # P1: Project isolation means only leases in the same project conflict.
+            if project_id and existing.project_id and project_id != existing.project_id:
+                continue
             if self._check_path_overlap(existing.resource_path, resource_path):
                 raise LeaseError(
                     f"Resource conflict: {resource_path} overlaps with {existing.resource_path} "

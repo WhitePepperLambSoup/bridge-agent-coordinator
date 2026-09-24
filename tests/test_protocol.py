@@ -1,4 +1,4 @@
-"""Phase 1.5 测试 — 任务包协议 (manifest, receipt, artifacts)"""
+"""Phase 1.5 tests - task package protocol (manifest, receipt, artifacts)."""
 
 import json
 import tempfile
@@ -259,7 +259,7 @@ task_id: TASK-001
 
 class TestReceiptValidation:
     def test_cross_check_task_id(self):
-        """回执 task_id 必须与 manifest 匹配"""
+        """The receipt task_id must match the manifest."""
         md = """---
 protocol_version: 1
 task_id: TASK-999
@@ -278,7 +278,7 @@ completed_at: 2026-01-01T00:00:00Z
         assert len(errors) > 0
 
     def test_cross_check_attempt(self):
-        """回执 attempt 必须与当前 attempt 匹配"""
+        """The receipt attempt must match the current attempt."""
         md = """---
 protocol_version: 1
 task_id: TASK-014
@@ -297,7 +297,7 @@ completed_at: 2026-01-01T00:00:00Z
         assert len(errors) > 0
 
     def test_cross_check_lease(self):
-        """回执 lease_id 必须匹配"""
+        """The receipt lease_id must match."""
         md = """---
 protocol_version: 1
 task_id: TASK-014
@@ -358,7 +358,7 @@ class TestTaskPackage:
             title="Test",
             allowed_paths=["src/**"],
         )
-        # 任务包应包含所有9个协议文件
+        # The task package should contain all nine protocol files.
         files = pkg.to_file_dict()
         assert "manifest.json" in files
         assert "PROMPT.md" in files
@@ -382,7 +382,7 @@ class TestTaskPackage:
             assert os.path.exists(os.path.join(task_dir, "manifest.json"))
             assert os.path.exists(os.path.join(task_dir, "PROMPT.md"))
             assert os.path.exists(os.path.join(task_dir, "TASK.md"))
-            # 验证 manifest.json 内容合法
+            # Verify that manifest.json contains valid content.
             with open(os.path.join(task_dir, "manifest.json"), "r") as f:
                 data = json.load(f)
             assert data["task_id"] == "TASK-001"
