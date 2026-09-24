@@ -9,6 +9,17 @@ API when the user explicitly enables and runs it.
 
 ## Quick Start
 
+### Windows executable
+
+Download `Bridge-windows-x64.zip` from the latest
+[GitHub Release](https://github.com/WhitePepperLambSoup/bridge-agent-coordinator/releases),
+extract it, and run `Bridge.exe`. Python is not required.
+
+The executable is not code-signed. Windows SmartScreen may show an unknown publisher
+warning; verify the downloaded file against `SHA256SUMS.txt` before running it.
+
+### Run from source
+
 Run these commands from the repository root in PowerShell:
 
 ```powershell

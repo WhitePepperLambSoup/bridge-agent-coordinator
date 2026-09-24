@@ -8,6 +8,16 @@
 
 ## 快速开始
 
+### Windows EXE
+
+从最新的 [GitHub Release](https://github.com/WhitePepperLambSoup/bridge-agent-coordinator/releases)
+下载 `Bridge-windows-x64.zip`，解压后运行 `Bridge.exe`，无需安装 Python。
+
+当前 EXE 尚未进行代码签名，Windows SmartScreen 可能显示“未知发布者”。运行前请使用
+Release 中的 `SHA256SUMS.txt` 核对文件哈希。
+
+### 从源码运行
+
 在项目根目录打开 PowerShell：
 
 ```powershell

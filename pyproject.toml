@@ -24,6 +24,7 @@ classifiers = [
 [project.optional-dependencies]
 dev = [
     "build>=1.2",
+    "pyinstaller>=6.0",
     "pytest>=8.0",
     "twine>=5.0",
 ]

@@ -14,6 +14,18 @@ All notable changes to this project are documented here.
   swallowing persistence errors.
 - Git artifact validation tests now use real commit provenance.
 
+## [0.1.1] - 2026-07-25
+
+### Added
+
+- Standalone Windows x64 executable built with PyInstaller.
+- Tag-driven GitHub Release workflow with EXE, ZIP, and SHA-256 checksum assets.
+- Windows version metadata for the executable.
+
+### Notes
+
+- The executable is not code-signed. Windows SmartScreen may display an unknown publisher warning.
+
 ## [0.1.0] - 2026-07-25
 
 ### Added
